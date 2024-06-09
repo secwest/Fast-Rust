@@ -1,4 +1,4 @@
-// wc -l opetimized in Rust using Rayon for paralleization, and AVX512 SIMD optimization on each core.
+// wc -l optimized in Rust using Rayon for paralleization, and AVX512 SIMD optimization on each core.
 // (C) Copyright 2024 Dragos Ruiu
 // Import necessary crates and modules
 use memmap::Mmap;                     // For memory-mapped file I/O
