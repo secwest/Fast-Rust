@@ -5,6 +5,7 @@
 //                                                    rustup component add rust-src --toolchain nightly
 //
 // Build with: RUSTFLAGS="-C target-cpu=native"  cargo build --release
+// Use lscpu to verify presence of avx512f.
 //
 //Cargo.toml:
 //
