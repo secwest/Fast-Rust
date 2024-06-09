@@ -76,7 +76,7 @@ fn count_newlines_avx2(chunk: &[u8]) -> usize {
     chunk.iter().filter(|&&c| c == b'\n').count()
 }
 
-// Function to count lines in a file using parallel processing and AVX-512 SIMD instructions
+// Function to count lines in a file using parallel processing and AVX2 SIMD instructions
 fn count_lines_parallel(filename: &str) -> io::Result<usize> {
     let file = File::open(filename)?;                               // Open the file
     let mmap = unsafe { Mmap::map(&file)? };                        // Memory-map the file
@@ -91,25 +91,25 @@ fn count_lines_parallel(filename: &str) -> io::Result<usize> {
         .par_iter_mut()
         .enumerate()
         .for_each(|(i, result)| {
-            let start = i * chunk_size;                            // Calculate the start index of the chunk
-            let end = usize::min(start + chunk_size, bytes.len()); // Calculate the end index of the chunk
-            *result = count_newlines_avx2(&bytes[start..end]);   // Count newlines in the chunk and store the result
+            let start = i * chunk_size;                             // Calculate the start index of the chunk
+            let end = usize::min(start + chunk_size, bytes.len());  // Calculate the end index of the chunk
+            *result = count_newlines_avx2(&bytes[start..end]);      // Count newlines in the chunk and store the result
         });
 
-    Ok(results.iter().sum())                                       // Sum the results from all chunks and return the total line count
+    Ok(results.iter().sum())                                        // Sum the results from all chunks and return the total line count
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();                 // Collect command line arguments
+    let args: Vec<String> = env::args().collect();                  // Collect command line arguments
     if args.len() != 2 {
         // Check if the correct number of arguments is provided
-        eprintln!("Usage: {} <filename>", args[0]);                // Print usage message
-        std::process::exit(1);                                     // Exit with an error code
+        eprintln!("Usage: {} <filename>", args[0]);                 // Print usage message
+        std::process::exit(1);                                      // Exit with an error code
     }
-    let filename = &args[1];                                       // Get the filename from the command line arguments
+    let filename = &args[1];                                        // Get the filename from the command line arguments
     match count_lines_parallel(filename) {
         // Count lines in the file
-        Ok(count) => println!("Number of lines: {}", count),      // Print the line count if successful
-        Err(err) => eprintln!("Error: {}", err),                  // Print an error message if an error occurs
+        Ok(count) => println!("Number of lines: {}", count),        // Print the line count if successful
+        Err(err) => eprintln!("Error: {}", err),                    // Print an error message if an error occurs
     }
 }
