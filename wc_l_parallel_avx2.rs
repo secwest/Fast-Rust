@@ -1,6 +1,6 @@
 
 // wc -l optimized in Rust using Rayon for paralleization, and AVX2 SIMD optimization on each core.
-// please note: at this time using avx512 requires using the nightly rustc tool chain: 
+// please note: at this time using avx2 requires using the nightly rustc tool chain: 
 //                                                    rustup install nightly
 //                                                    rustup default nightly
 //                                                    rustup component add rust-src --toolchain nightly
