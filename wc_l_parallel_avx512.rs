@@ -1,4 +1,4 @@
-// wc -l optimized in Rust using Rayon for paralleization, and AVX512 SIMD optimization on each core.
+// wc -l optimized in Rust using Rayon for parallelization, and AVX512 SIMD optimization on each core.
 // please note: at this time using avx512 requires using the nightly rustc tool chain: 
 //                                                    rustup install nightly
 //                                                    rustup default nightly
