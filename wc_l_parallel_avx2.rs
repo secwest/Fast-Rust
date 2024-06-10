@@ -1,5 +1,4 @@
-
-// wc -l optimized in Rust using Rayon for parallelization, and AVX2 SIMD optimization on each core.
+/ wc -l optimized in Rust using Rayon for parallelization, and AVX2 SIMD optimization on each core.
 // please note: at this time using avx2 requires using the nightly rustc tool chain: 
 //                                                    rustup install nightly
 //                                                    rustup default nightly
@@ -21,15 +20,17 @@
 //[dependencies]
 //memmap = "0.7"
 //rayon = "1.5"
+//num_cpus = "1.16.0"
 
 // (C) Copyright 2024 Dragos Ruiu
 
-#![feature(stdsimd)] // Enable SIMD features
+//#![feature(stdsimd)] // Enable SIMD features
 
 // Import necessary crates and modules
 
 extern crate memmap;
 extern crate rayon;
+extern crate num_cpus;
 
 use memmap::Mmap;                     // For memory-mapped file I/O
 use rayon::prelude::*;                // For parallel processing
@@ -93,7 +94,7 @@ fn count_lines_parallel(filename: &str) -> io::Result<usize> {
         .for_each(|(i, result)| {
             let start = i * chunk_size;                             // Calculate the start index of the chunk
             let end = usize::min(start + chunk_size, bytes.len());  // Calculate the end index of the chunk
-            *result = count_newlines_avx2(&bytes[start..end]);      // Count newlines in the chunk and store the result
+            *result = unsafe { count_newlines_avx2(&bytes[start..end]) };      // Count newlines in the chunk and store the result
         });
 
     Ok(results.iter().sum())                                        // Sum the results from all chunks and return the total line count
@@ -107,9 +108,19 @@ fn main() {
         std::process::exit(1);                                      // Exit with an error code
     }
     let filename = &args[1];                                        // Get the filename from the command line arguments
+    
+    // Print diagnostic information
+    let num_cpus = num_cpus::get();
+    let avx2_enabled = std::is_x86_feature_detected!("avx2");
+
+    println!("Number of processors: {}", num_cpus);
+    println!("AVX2 enabled: {}", avx2_enabled);
+
+
     match count_lines_parallel(filename) {
         // Count lines in the file
         Ok(count) => println!("Number of lines: {}", count),        // Print the line count if successful
         Err(err) => eprintln!("Error: {}", err),                    // Print an error message if an error occurs
     }
 }
+`
