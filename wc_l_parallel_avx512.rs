@@ -41,7 +41,7 @@ use std::io;                          // For I/O operations
 use std::arch::x86_64::*;             // For AVX-512 SIMD instructions
 
 // Function to count newline characters in a chunk using AVX-512 SIMD instructions
-fn count_newlines_avx512(chunk: &[u8]) -> usize {
+unsafe fn count_newlines_avx512(chunk: &[u8]) -> usize {
     let mut line_count = 0;           // Initialize line count
     let mut i = 0;                    // Initialize byte index
     unsafe {
@@ -89,7 +89,7 @@ fn count_lines_parallel(filename: &str) -> io::Result<usize> {
         .for_each(|(i, result)| {
             let start = i * chunk_size;                            // Calculate the start index of the chunk
             let end = usize::min(start + chunk_size, bytes.len()); // Calculate the end index of the chunk
-            *result = count_newlines_avx512(&bytes[start..end]);   // Count newlines in the chunk and store the result
+            *result = unsafe { count_newlines_avx512(&bytes[start..end]) };   // Count newlines in the chunk and store the result
         });
 
     Ok(results.iter().sum())                                       // Sum the results from all chunks and return the total line count
