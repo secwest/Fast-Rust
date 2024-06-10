@@ -24,8 +24,6 @@
 
 // (C) Copyright 2024 Dragos Ruiu
 
-//#![feature(stdsimd)] // Enable SIMD features
-
 // Import necessary crates and modules
 
 extern crate memmap;
