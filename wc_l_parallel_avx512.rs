@@ -41,6 +41,7 @@ use std::io;                          // For I/O operations
 use std::arch::x86_64::*;             // For AVX-512 SIMD instructions
 
 // Function to count newline characters in a chunk using AVX-512 SIMD instructions
+#[cfg(target_feature = "avx512f")]
 unsafe fn count_newlines_avx512(chunk: &[u8]) -> usize {
     let mut line_count = 0;           // Initialize line count
     let mut i = 0;                    // Initialize byte index
