@@ -251,12 +251,10 @@ fn count_words_and_chars(
 
         // Check if the current position is the start of a 4-byte UTF-8 character
         if (is_four_byte_utf_mask & bit) != 0 {
-            if in_whitespace {
+            if in_whitespace 
                 // Start of a new word
                 result.word_count += 1;
-                in_whitespace = false;
-            }
-
+            in_whitespace = false;
             result.four_byte_count += 1;
             if j >= chunk_len - 4 {
                 // Handle edge case: 4-byte character at the end of the chunk
@@ -269,12 +267,10 @@ fn count_words_and_chars(
 
         // Check if the current position is the start of a 3-byte UTF-8 character
         if (is_three_byte_utf_mask & bit) != 0 {
-            if in_whitespace {
+            if in_whitespace
                 // Start of a new word
                 result.word_count += 1;
-                in_whitespace = false;
-            }
-
+            in_whitespace = false;
             result.three_byte_count += 1;
             if j >= chunk_len - 3 {
                 // Handle edge case: 3-byte character at the end of the chunk
@@ -287,30 +283,28 @@ fn count_words_and_chars(
 
         // Check if the current position is a whitespace character
         if (whitespace_mask & bit) != 0 {
-            if !in_whitespace {
-                in_whitespace = true;
-                if (ascii_whitespace_mask & bit) != 0 {
-                    // ASCII whitespace
-                    result.ascii_whitespace_count += 1;
-                } else {
-                    // Unicode whitespace
-                    result.unicode_whitespace_count += 1;
-                    if j >= chunk_len - 1 {
-                        // Handle edge case: Unicode whitespace at the end of the chunk
-                        result.ending_in_utf16 = true;
-                        break;
-                    }
-                    j += 2; // Move forward by 2 bytes for Unicode whitespace
-                    continue;
+            in_whitespace = true;
+            if (ascii_whitespace_mask & bit) != 0 {
+            // ASCII whitespace
+                result.ascii_whitespace_count += 1;
+            } else {
+                // Unicode whitespace
+                result.unicode_whitespace_count += 1;
+                if j >= chunk_len - 1 {
+                    // Handle edge case: Unicode whitespace at the end of the chunk
+                    result.ending_in_utf8 = true;
+                    break;
                 }
+                j += 2; // Move forward by 2 bytes for Unicode whitespace
+                continue;
             }
+            
         } else {
-            if in_whitespace {
+            if in_whitespace
                 // Start of a new word
                 result.word_count += 1;
-                in_whitespace = false;
-            }
-
+            in_whitespace = false;
+            
             // Check if the current position is the start of a 2-byte UTF-8 character
             if (is_two_byte_utf_mask & bit) != 0 {
                 result.two_byte_count += 1;
@@ -474,10 +468,9 @@ unsafe fn count_patterns_fallback_chunk(chunk: &[u8]) -> ChunkResult {
 
         // Check for 4-byte UTF-32 characters first
         if byte & 0xF8 == 0xF0 {
-            if in_whitespace {
+            if in_whitespace 
                 result.word_count += 1;
-                in_whitespace = false;
-            }
+            in_whitespace = false;
             result.four_byte_count += 1;
             if j >= chunk.len() - 4 {
                 result.ending_in_utf32 = true;
@@ -489,10 +482,9 @@ unsafe fn count_patterns_fallback_chunk(chunk: &[u8]) -> ChunkResult {
 
         // Check for 3-byte UTF-16 characters
         if byte & 0xF0 == 0xE0 {
-            if in_whitespace {
+            if in_whitespace
                 result.word_count += 1;
-                in_whitespace = false;
-            }
+            in_whitespace = false;
             result.three_byte_count += 1;
             if j >= chunk.len() - 3 {
                 result.ending_in_utf16 = true;
@@ -504,27 +496,22 @@ unsafe fn count_patterns_fallback_chunk(chunk: &[u8]) -> ChunkResult {
 
         // Check for whitespace
         if ASCII_WHITESPACE_PATTERNS.contains(&byte) {
-            if !in_whitespace {
-                in_whitespace = true;
-                result.ascii_whitespace_count += 1;
-            }
+            in_whitespace = true;
+            result.ascii_whitespace_count += 1;
         } else if UNICODE_WHITESPACE_PATTERNS.contains(&(byte as u16)) {
-            if !in_whitespace {
-                in_whitespace = true;
-                result.unicode_whitespace_count += 1;
-            }
+            in_whitespace = true;
+            result.unicode_whitespace_count += 1;
             if j >= chunk.len() - 1 {
-                result.ending_in_utf16 = true;
+                result.ending_in_utf8 = true;
                 break;
             }
             j += 2;
             continue;
         } else {
-            if in_whitespace {
+            if in_whitespace
                 result.word_count += 1;
-                in_whitespace = false;
-            }
-
+            in_whitespace = false;
+            
             // Check for ASCII characters
             if byte & 0x80 == 0 {
                 result.ascii_count += 1;
