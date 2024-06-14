@@ -355,16 +355,17 @@ fn adjust_word_count(results: &mut Vec<ChunkResult>, bytes: &[u8]) {
                         if (prev_last_byte == 0x20 && first_byte == 0x09) || (prev_last_byte == 0x20 && first_byte == 0x0A) {
                             // If so, adjust the ASCII whitespace count down
                             curr.ascii_whitespace_count -= 1;
+                            curr.unicode_whitespace_count += 1;
                         } else {
                             // Combine the last byte of the previous chunk with the first byte of the current chunk
                             let combined_char = ((prev_last_byte as u16) << 8) | (first_byte as u16);
 
                             // Check if the combined character is a Unicode whitespace character
                             if UNICODE_WHITESPACE_PATTERNS.contains(&combined_char) {
+                                curr.unicode_whitespace_count += 1;
                                 let next_byte_index = first_byte_index + 1;
                                 if next_byte_index < bytes.len() {
                                     let next_byte = bytes[next_byte_index];
-
                                     // Check if the next byte is either ASCII whitespace or Unicode whitespace
                                     if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) ||
                                         UNICODE_WHITESPACE_PATTERNS.contains(&(next_byte as u16)) {
