@@ -535,21 +535,19 @@ fn adjust_word_count(results: &mut Vec<ChunkResult>, bytes: &[u8]) {
         if prev.ending_in_utf16 {
             for offset in 1..=2 {
                 let first_byte_index = i * 64;
-                if first_byte_index + offset < bytes.len() {
-                    let first_bytes = &bytes[first_byte_index..first_byte_index + offset];
+                let first_bytes = &bytes[first_byte_index..first_byte_index + offset];
 
-                    // UTF-16 can straddle by 1 or 2 bytes, adjust ASCII count for misinterpreted characters
-                    if first_bytes.iter().all(|&b| b & 0xC0 == 0x80) {
-                        curr.ascii_count += offset;
+                // UTF-16 can straddle by 1 or 2 bytes, adjust ASCII count for misinterpreted characters
+                if first_bytes.iter().all(|&b| b & 0xC0 == 0x80) {
+                    curr.ascii_count += offset;
 
-                        // Check if the next byte is a whitespace character
-                        let next_byte_index = first_byte_index + offset;
-                        if next_byte_index < bytes.len() {
-                            let next_byte = bytes[next_byte_index];
-                            if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) ||
-                               UNICODE_WHITESPACE_PATTERNS.contains(&(next_byte as u16)) {
-                                curr.word_count -= 1;
-                            }
+                    // Check if the next byte is a whitespace character
+                    let next_byte_index = first_byte_index + offset;
+                    if next_byte_index < bytes.len() {
+                        let next_byte = bytes[next_byte_index];
+                        if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) ||
+                            UNICODE_WHITESPACE_PATTERNS.contains(&(next_byte as u16)) {
+                            curr.word_count -= 1;
                         }
                     }
                 }
@@ -560,37 +558,32 @@ fn adjust_word_count(results: &mut Vec<ChunkResult>, bytes: &[u8]) {
         if prev.ending_in_utf32 {
             for offset in 1..=3 {
                 let first_byte_index = i * 64;
-                if first_byte_index + offset < bytes.len() {
-                    let first_bytes = &bytes[first_byte_index..first_byte_index + offset];
+                let first_bytes = &bytes[first_byte_index..first_byte_index + offset];
 
-                    // UTF-32 can straddle by 1, 2, or 3 bytes, adjust ASCII count for misinterpreted characters
-                    if first_bytes.iter().all(|&b| b & 0xC0 == 0x80) {
-                        curr.ascii_count += offset;
+                // UTF-32 can straddle by 1, 2, or 3 bytes, adjust ASCII count for misinterpreted characters
+                if first_bytes.iter().all(|&b| b & 0xC0 == 0x80) {
+                    curr.ascii_count += offset;
 
-                        // Check if the next byte is a whitespace character
-                        let next_byte_index = first_byte_index + offset;
-                        if next_byte_index < bytes.len() {
-                            let next_byte = bytes[next_byte_index];
-                            if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) ||
-                               UNICODE_WHITESPACE_PATTERNS.contains(&(next_byte as u16)) {
-                                curr.word_count -= 1;
-                            }
+                    // Check if the next byte is a whitespace character
+                    let next_byte_index = first_byte_index + offset;
+                    if next_byte_index < bytes.len() {
+                        let next_byte = bytes[next_byte_index];
+                        if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) ||
+                            UNICODE_WHITESPACE_PATTERNS.contains(&(next_byte as u16)) {
+                            curr.word_count -= 1;
                         }
                     }
                 }
             }
         }
 
-
         // Adjust the word count if the previous chunk ended in a word and the current chunk starts with a non-whitespace character
         if prev.ending_in_word {
             let first_byte_index = i * 64;
-            if first_byte_index < bytes.len() {
-                let first_byte = bytes[first_byte_index];
-                if !ASCII_WHITESPACE_PATTERNS.contains(&first_byte) &&
-                   !UNICODE_WHITESPACE_PATTERNS.contains(&(first_byte as u16)) {
-                    curr.word_count -= 1;
-                }
+            let first_byte = bytes[first_byte_index];
+            if !ASCII_WHITESPACE_PATTERNS.contains(&first_byte) &&
+                !UNICODE_WHITESPACE_PATTERNS.contains(&(first_byte as u16)) {
+                curr.word_count -= 1;
             }
         }
     }
