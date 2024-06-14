@@ -101,7 +101,7 @@ struct ChunkResult {
 unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
     let mut result = ChunkResult::default();
 
-    // Create SIMD patterns for leading bytes of UTF-8 sequences
+    // Create SIMD patterns for leading bytes of UTF sequences
     let two_byte_utf_mask = _mm512_set1_epi8(0xC0 as i8);  // 110xxxxx
     let three_byte_utf_mask = _mm512_set1_epi8(0xE0 as i8); // 1110xxxx
     let four_byte_utf_mask = _mm512_set1_epi8(0xF0 as i8);  // 11110xxx
@@ -243,7 +243,7 @@ unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
 unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     let mut result = ChunkResult::default();
 
-    // Create SIMD patterns for leading bytes of UTF-8 sequences
+    // Create SIMD patterns for leading bytes of UTF sequences
     let two_byte_utf_mask = _mm256_set1_epi8(0xC0 as i8);  // 110xxxxx
     let three_byte_utf_mask = _mm256_set1_epi8(0xE0 as i8); // 1110xxxx
     let four_byte_utf_mask = _mm256_set1_epi8(0xF0 as i8);  // 11110xxx
@@ -337,7 +337,7 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
                 result.ending_in_utf8 = true;
                 break;
             }
-        } else if byte & 0xF0 == 0xE0 { // Check for 3-byte UTF-8 characters
+        } else if byte & 0xF0 == 0xE0 { // Check for 3-byte UTF-16 characters
             if i + 2 < chunk.len() {
                 if result.ending_in_word {
                     result.word_count += 1;
@@ -349,7 +349,7 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
                 result.ending_in_utf16 = true;
                 break;
             }
-        } else if byte & 0xF8 == 0xF0 { // Check for 4-byte UTF-8 characters
+        } else if byte & 0xF8 == 0xF0 { // Check for 4-byte UTF-32 characters
             if i + 3 < chunk.len() {
                 if result.ending_in_word {
                     result.word_count += 1;
@@ -394,7 +394,7 @@ unsafe fn count_patterns_fallback_chunk(chunk: &[u8]) -> ChunkResult {
     while j < chunk.len() {
         let byte = chunk[j];
 
-        // Check for 4-byte UTF-8 characters first
+        // Check for 4-byte UTF-32 characters first
         if byte & 0xF8 == 0xF0 {
             if in_whitespace {
                 result.word_count += 1;
@@ -409,7 +409,7 @@ unsafe fn count_patterns_fallback_chunk(chunk: &[u8]) -> ChunkResult {
             continue;
         }
 
-        // Check for 3-byte UTF-8 characters
+        // Check for 3-byte UTF-16 characters
         if byte & 0xF0 == 0xE0 {
             if in_whitespace {
                 result.word_count += 1;
