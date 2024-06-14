@@ -271,23 +271,17 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     chunk_data[..chunk.len()].copy_from_slice(chunk);
     let chunk_data = _mm256_loadu_si256(chunk_data.as_ptr() as *const __m256i);
 
-    // Initialize exclusion masks
-    let mut exclusion_mask = 0u32;
-    let mut whitespace_mask = 0u32;
+   
 
     // Perform all comparisons simultaneously
     let is_two_byte_utf = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data, two_byte_utf_mask), two_byte_utf_mask);
     let is_three_byte_utf = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data, three_byte_utf_mask), three_byte_utf_mask);
     let is_four_byte_utf = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data, four_byte_utf_mask), four_byte_utf_mask);
 
-    // Combine the results into exclusion masks
+    // Combine the results into masks
     let is_two_byte_utf_mask = _mm256_movemask_epi8(is_two_byte_utf) as u32;
     let is_three_byte_utf_mask = _mm256_movemask_epi8(is_three_byte_utf) as u32;
     let is_four_byte_utf_mask = _mm256_movemask_epi8(is_four_byte_utf) as u32;
-
-    exclusion_mask |= is_four_byte_utf_mask | (is_four_byte_utf_mask << 1) | (is_four_byte_utf_mask << 2) | (is_four_byte_utf_mask << 3);
-    is_three_byte_utf_mask ^= exclusion_mask;
-    exclusion_mask |= is_three_byte_utf_mask | (is_three_byte_utf_mask << 1) | (is_three_byte_utf_mask << 2);
 
     // Identify and mask out Unicode whitespace
     let unicode_whitespace_cmp1 = _mm256_cmpeq_epi16(chunk_data, unicode_whitespace_patterns1);
@@ -295,11 +289,7 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     let unicode_whitespace_mask1 = _mm256_movemask_epi16(unicode_whitespace_cmp1) as u32;
     let unicode_whitespace_mask2 = _mm256_movemask_epi16(unicode_whitespace_cmp2) as u32;
     let unicode_whitespace_mask = unicode_whitespace_mask1 | (unicode_whitespace_mask2 << 16);
-    unicode_whitespace_mask ^= exclusion_mask;
-    whitespace_mask |= unicode_whitespace_mask;
-
-    is_two_byte_utf_mask ^= exclusion_mask;
-    exclusion_mask |= is_two_byte_utf_mask | (is_two_byte_utf_mask << 1);
+    let mut whitespace_mask = unicode_whitespace_mask ;
 
     while j < chunk.len() {
         let bit = 1 << j;
@@ -378,7 +368,7 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     result
 }
 
- #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     let mut result = ChunkResult::default();
 
@@ -418,6 +408,7 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     let is_three_byte_utf = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data, three_byte_utf_mask), three_byte_utf_mask);
     let is_four_byte_utf = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data, four_byte_utf_mask), four_byte_utf_mask);
 
+    // Combine the results into masks
     let is_two_byte_utf_mask = _mm256_movemask_epi8(is_two_byte_utf) as u32;
     let is_three_byte_utf_mask = _mm256_movemask_epi8(is_three_byte_utf) as u32;
     let is_four_byte_utf_mask = _mm256_movemask_epi8(is_four_byte_utf) as u32;
