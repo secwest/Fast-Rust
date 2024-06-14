@@ -97,10 +97,8 @@ struct ChunkResult {
     ending_in_utf8: bool,
 }
 
-[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
-    let mut result = ChunkResult::default();
-
     // Create SIMD patterns for leading bytes of UTF sequences
     let two_byte_utf_mask = _mm512_set1_epi8(0xC0 as i8);  // 110xxxxx
     let three_byte_utf_mask = _mm512_set1_epi8(0xE0 as i8); // 1110xxxx
@@ -156,90 +154,12 @@ unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
     whitespace_mask |= ascii_whitespace_mask;
 
     // Use the masks to count words and character types
-    let mut in_whitespace = true;
-    let mut j = 0;
-
-    while j < chunk.len() {
-        let bit = 1 << j;
-
-        if (is_four_byte_utf_mask & bit) != 0 {
-            if in_whitespace {
-                result.word_count += 1;
-                in_whitespace = false;
-            }
-
-            result.four_byte_count += 1;
-            if j >= chunk.len() - 4 {
-                result.ending_in_utf32 = true;
-                break;
-            }
-            j += 4;
-            continue;
-        }
-
-        if (is_three_byte_utf_mask & bit) != 0 {
-            if in_whitespace {
-                result.word_count += 1;
-                in_whitespace = false;
-            }
-
-            result.three_byte_count += 1;
-            if j >= chunk.len() - 3 {
-                result.ending_in_utf16 = true;
-                break;
-            }
-            j += 3;
-            continue;
-        }
-
-        if (whitespace_mask & bit) != 0 {
-            if !in_whitespace {
-                in_whitespace = true;
-                if (ascii_whitespace_mask & bit) != 0 {
-                    result.ascii_whitespace_count += 1;
-                } else {
-                    result.unicode_whitespace_count += 1;
-                    if j >= chunk.len() - 1 {
-                        result.ending_in_utf16 = true;
-                        break;
-                    }
-                    j += 2;
-                    continue;
-                }
-            }
-        } else {
-            if in_whitespace {
-                result.word_count += 1;
-                in_whitespace = false;
-            }
-
-            if (is_two_byte_utf_mask & bit) != 0 {
-                result.two_byte_count += 1;
-                if j >= chunk.len() - 2 {
-                    result.ending_in_utf8 = true;
-                    break;
-                }
-                j += 2;
-                continue;
-            } else {
-                result.ascii_count += 1;
-            }
-        }
-
-        j += 1;
-    }
-
-    if !in_whitespace {
-        result.ending_in_word = true;
-    }
-
-    result
+    count_words_and_chars(chunk.len(), is_two_byte_utf_mask, is_three_byte_utf_mask, is_four_byte_utf_mask, ascii_whitespace_mask, whitespace_mask)
 }
+
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
-    let mut result = ChunkResult::default();
-
     // Create SIMD patterns for leading bytes of UTF sequences
     let two_byte_utf_mask = _mm256_set1_epi8(0xC0 as i8);  // 110xxxxx
     let three_byte_utf_mask = _mm256_set1_epi8(0xE0 as i8); // 1110xxxx
@@ -305,77 +225,103 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     whitespace_mask |= ascii_whitespace_mask;
 
     // Use the masks to count words and character types
+    count_words_and_chars(chunk.len(), is_two_byte_utf_mask, is_three_byte_utf_mask, is_four_byte_utf_mask, ascii_whitespace_mask, whitespace_mask)
+}
+
+fn count_words_and_chars(
+    chunk_len: usize,
+    is_two_byte_utf_mask: u64,
+    is_three_byte_utf_mask: u64,
+    is_four_byte_utf_mask: u64,
+    ascii_whitespace_mask: u64,
+    whitespace_mask: u64,
+) -> ChunkResult {
+    let mut result = ChunkResult::default();
     let mut in_whitespace = true;
     let mut j = 0;
 
-    while j < chunk.len() {
+    while j < chunk_len {
         let bit = 1 << j;
 
+        // Check if the current position is the start of a 4-byte UTF-8 character
         if (is_four_byte_utf_mask & bit) != 0 {
             if in_whitespace {
+                // Start of a new word
                 result.word_count += 1;
                 in_whitespace = false;
             }
 
             result.four_byte_count += 1;
-            if j >= chunk.len() - 4 {
+            if j >= chunk_len - 4 {
+                // Handle edge case: 4-byte character at the end of the chunk
                 result.ending_in_utf32 = true;
                 break;
             }
-            j += 4;
+            j += 4; // Move forward by 4 bytes
             continue;
         }
 
+        // Check if the current position is the start of a 3-byte UTF-8 character
         if (is_three_byte_utf_mask & bit) != 0 {
             if in_whitespace {
+                // Start of a new word
                 result.word_count += 1;
                 in_whitespace = false;
             }
 
             result.three_byte_count += 1;
-            if j >= chunk.len() - 3 {
+            if j >= chunk_len - 3 {
+                // Handle edge case: 3-byte character at the end of the chunk
                 result.ending_in_utf16 = true;
                 break;
             }
-            j += 3;
+            j += 3; // Move forward by 3 bytes
             continue;
         }
 
+        // Check if the current position is a whitespace character
         if (whitespace_mask & bit) != 0 {
             if !in_whitespace {
                 in_whitespace = true;
                 if (ascii_whitespace_mask & bit) != 0 {
+                    // ASCII whitespace
                     result.ascii_whitespace_count += 1;
                 } else {
+                    // Unicode whitespace
                     result.unicode_whitespace_count += 1;
-                    if j >= chunk.len() - 1 {
+                    if j >= chunk_len - 1 {
+                        // Handle edge case: Unicode whitespace at the end of the chunk
                         result.ending_in_utf16 = true;
                         break;
                     }
-                    j += 2;
+                    j += 2; // Move forward by 2 bytes for Unicode whitespace
                     continue;
                 }
             }
         } else {
             if in_whitespace {
+                // Start of a new word
                 result.word_count += 1;
                 in_whitespace = false;
             }
 
+            // Check if the current position is the start of a 2-byte UTF-8 character
             if (is_two_byte_utf_mask & bit) != 0 {
                 result.two_byte_count += 1;
-                if j >= chunk.len() - 2 {
+                if j >= chunk_len - 2 {
+                    // Handle edge case: 2-byte character at the end of the chunk
                     result.ending_in_utf8 = true;
                     break;
                 }
-                j += 2;
+                j += 2; // Move forward by 2 bytes
                 continue;
             } else {
+                // ASCII character
                 result.ascii_count += 1;
             }
         }
 
-        j += 1;
+        j += 1; // Move to the next byte
     }
 
     if !in_whitespace {
@@ -384,6 +330,8 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
 
     result
 }
+
+
 
 fn adjust_word_count(results: &mut Vec<ChunkResult>, bytes: &[u8]) {
     for i in 1..results.len() {
