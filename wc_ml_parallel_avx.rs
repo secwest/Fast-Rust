@@ -144,19 +144,23 @@ unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
     let is_four_byte_utf_mask = _mm512_movemask_epi8(is_four_byte_utf) as u64;
 
     exclusion_mask |= is_four_byte_utf_mask | (is_four_byte_utf_mask << 1) | (is_four_byte_utf_mask << 2) | (is_four_byte_utf_mask << 3);
+    is_three_byte_utf_mask ^= exclusion_mask;
     exclusion_mask |= is_three_byte_utf_mask | (is_three_byte_utf_mask << 1) | (is_three_byte_utf_mask << 2);
 
     // Identify and mask out Unicode whitespace
     let unicode_whitespace_cmp = _mm512_cmpeq_epi16_mask(chunk_data, unicode_whitespace_patterns);
     let unicode_whitespace_mask = _mm512_movemask_epi16(unicode_whitespace_cmp) as u64;
-    whitespace_mask |= unicode_whitespace_mask & !exclusion_mask;
+    unicode_whitespace_mask ^= exclusion_mask;
+    whitespace_mask |= unicode_whitespace_mask;
 
+    is_two_byte_utfmask ^= exclusion_mask;
     exclusion_mask |= is_two_byte_utf_mask | (is_two_byte_utf_mask << 1);
 
     // Identify and count ASCII whitespace
     let ascii_whitespace_cmp = _mm512_cmpeq_epi8_mask(chunk_data, ascii_whitespace_patterns);
     let ascii_whitespace_mask = _mm512_movemask_epi8(ascii_whitespace_cmp) as u64;
-    whitespace_mask |= ascii_whitespace_mask & !exclusion_mask;
+    ascii_whitespace_mask ^= exclusion_mask;
+    whitespace_mask |= ascii_whitespace_mask;
 
     // Use the masks to count words and character types
     let mut in_whitespace = true;
@@ -289,6 +293,7 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     let is_four_byte_utf_mask = _mm256_movemask_epi8(is_four_byte_utf) as u32;
 
     exclusion_mask |= is_four_byte_utf_mask | (is_four_byte_utf_mask << 1) | (is_four_byte_utf_mask << 2) | (is_four_byte_utf_mask << 3);
+    is_three_byte_utf_mask ^= exclusion_mask;
     exclusion_mask |= is_three_byte_utf_mask | (is_three_byte_utf_mask << 1) | (is_three_byte_utf_mask << 2);
 
     // Identify and mask out Unicode whitespace
@@ -297,8 +302,10 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     let unicode_whitespace_mask1 = _mm256_movemask_epi16(unicode_whitespace_cmp1) as u32;
     let unicode_whitespace_mask2 = _mm256_movemask_epi16(unicode_whitespace_cmp2) as u32;
     let unicode_whitespace_mask = unicode_whitespace_mask1 | (unicode_whitespace_mask2 << 16);
-    whitespace_mask |= unicode_whitespace_mask & !exclusion_mask;
+    unicode_whitespace_mask ^= exclusion_mask;
+    whitespace_mask |= unicode_whitespace_mask;
 
+    is_two_byte_utf_mask ^= exclusion_mask;
     exclusion_mask |= is_two_byte_utf_mask | (is_two_byte_utf_mask << 1);
 
     while j < chunk.len() {
