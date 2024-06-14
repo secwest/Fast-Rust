@@ -604,21 +604,28 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
         let start = i * chunk_size;
         let end = usize::min(start + chunk_size, bytes.len());
 
-        let chunk = &bytes[start..end];
+        let chunk = if end - start < 64 {
+            let mut padded_chunk = vec![0u8; 64];
+            let real_size = end - start;
+            padded_chunk[..real_size].copy_from_slice(&bytes[start..end]);
+            padded_chunk
+        } else {
+            bytes[start..end].to_vec()
+        };
 
         let counts = if std::is_x86_feature_detected!("avx512f") {
-            unsafe { count_patterns_avx512_chunk(chunk) }
+            unsafe { count_patterns_avx512_chunk(&chunk) }
         } else if std::is_x86_feature_detected!("avx2") {
-            unsafe { count_patterns_avx2_chunk(chunk) }
+            unsafe { count_patterns_avx2_chunk(&chunk) }
         } else {
-            unsafe { count_patterns_fallback_chunk(chunk) }
+            unsafe { count_patterns_fallback_chunk(&chunk) }
         };
         *result = counts;
     });
 
     adjust_word_count(&mut results, bytes);
 
-    let total_result = results.iter().fold(ChunkResult::default(), |mut acc, r| {
+    let mut total_result = results.iter().fold(ChunkResult::default(), |mut acc, r| {
         acc.ascii_count += r.ascii_count;
         acc.two_byte_count += r.two_byte_count;
         acc.three_byte_count += r.three_byte_count;
@@ -628,6 +635,21 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
         acc.word_count += r.word_count;
         acc
     });
+
+    // Adjust the total result for the last partial chunk
+    let last_chunk_size = bytes.len() % chunk_size;
+    if last_chunk_size > 0 {
+        let padding_size = chunk_size - last_chunk_size;
+        total_result.ascii_count -= padding_size;
+
+        // Check if the last byte of the real data is a whitespace character
+        if last_chunk_size > 1 {
+            let last_byte = bytes[bytes.len() - last_chunk_size];
+            if ASCII_WHITESPACE_PATTERNS.contains(&last_byte) || UNICODE_WHITESPACE_PATTERNS.contains(&(last_byte as u16)) {
+                total_result.word_count -= 1;
+            }
+        }
+    }
 
     Ok(total_result)
 }
