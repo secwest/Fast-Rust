@@ -105,22 +105,24 @@ unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
     let four_byte_utf_mask = _mm512_set1_epi8(0xF0 as i8);  // 11110xxx
 
     // Create an array and populate it with the repeated ASCII whitespace patterns
-    let mut ascii_pattern_array = [0u8; 64];
-    for i in 0..64 {
-        ascii_pattern_array[i] = ASCII_WHITESPACE_PATTERNS[i % ASCII_WHITESPACE_PATTERNS.len()];
-    }
-
-    // Load the array into an AVX-512 register
-    let ascii_whitespace_patterns = _mm512_loadu_si512(ascii_pattern_array.as_ptr() as *const __m512i);
+    static ASCII_PATTERN_ARRAY_AVX512: [u8; 64] = {
+        let mut arr = [0u8; 64];
+        for i in 0..64 {
+            arr[i] = ASCII_WHITESPACE_PATTERNS[i % ASCII_WHITESPACE_PATTERNS.len()];
+        }
+        arr
+    };
+    let ascii_whitespace_patterns = _mm512_loadu_si512(ASCII_PATTERN_ARRAY_AVX512.as_ptr() as *const __m512i);
 
     // Create an array and populate it with the repeated Unicode whitespace patterns
-    let mut unicode_pattern_array = [0u16; 32];
-    for i in 0..32 {
-        unicode_pattern_array[i] = UNICODE_WHITESPACE_PATTERNS[i % UNICODE_WHITESPACE_PATTERNS.len()];
-    }
-
-    // Load the array into an AVX-512 register
-    let unicode_whitespace_patterns = _mm512_loadu_si512(unicode_pattern_array.as_ptr() as *const __m512i);
+    static UNICODE_PATTERN_ARRAY_AVX512: [u16; 32] = {
+        let mut arr = [0u16; 32];
+        for i in 0..32 {
+            arr[i] = UNICODE_WHITESPACE_PATTERNS[i % UNICODE_WHITESPACE_PATTERNS.len()];
+        }
+        arr
+    };
+    let unicode_whitespace_patterns = _mm512_loadu_si512(UNICODE_PATTERN_ARRAY_AVX512.as_ptr() as *const __m512i);
 
     // Load the chunk into an AVX-512 register
     let mut chunk_data = [0u8; 64];
@@ -160,30 +162,32 @@ unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
+    let mut result = ChunkResult::default();
+
     // Create SIMD patterns for leading bytes of UTF sequences
     let two_byte_utf_mask = _mm256_set1_epi8(0xC0 as i8);  // 110xxxxx
     let three_byte_utf_mask = _mm256_set1_epi8(0xE0 as i8); // 1110xxxx
     let four_byte_utf_mask = _mm256_set1_epi8(0xF0 as i8);  // 11110xxx
 
     // Create an array and populate it with the repeated ASCII whitespace patterns
-    let mut ascii_pattern_array = [0u8; 32];
-    for i in 0..32 {
-        ascii_pattern_array[i] = ASCII_WHITESPACE_PATTERNS[i % ASCII_WHITESPACE_PATTERNS.len()];
-    }
+    static ASCII_PATTERN_ARRAY_AVX2: [u8; 32] = {
+        let mut arr = [0u8; 32];
+        for i in 0..32 {
+            arr[i] = ASCII_WHITESPACE_PATTERNS[i % ASCII_WHITESPACE_PATTERNS.len()];
+        }
+        arr
+    };
+    let ascii_whitespace_patterns = _mm256_loadu_si256(ASCII_PATTERN_ARRAY_AVX2.as_ptr() as *const __m256i);
 
-    // Load the array into an AVX2 register
-    let ascii_whitespace_patterns = _mm256_loadu_si256(ascii_pattern_array.as_ptr() as *const __m256i);
-
-    // Create an array and populate it with the first 16 Unicode whitespace patterns
-    let mut unicode_pattern_array1 = [0u16; 16];
-    for i in 0..16 {
-        unicode_pattern_array1[i] = UNICODE_WHITESPACE_PATTERNS[i];
-    }
-
-    // Load the array into an AVX2 register
-    let unicode_whitespace_patterns1 = _mm256_loadu_si256(unicode_pattern_array1.as_ptr() as *const __m256i);
-
-    // Load the 17th Unicode whitespace pattern into an AVX2 register, repeated
+    // Create an array and populate it with the repeated Unicode whitespace patterns
+    static UNICODE_PATTERN_ARRAY_AVX2: [u16; 16] = {
+        let mut arr = [0u16; 16];
+        for i in 0..16 {
+            arr[i] = UNICODE_WHITESPACE_PATTERNS[i % UNICODE_WHITESPACE_PATTERNS.len()];
+        }
+        arr
+    };
+    let unicode_whitespace_patterns1 = _mm256_loadu_si256(UNICODE_PATTERN_ARRAY_AVX2.as_ptr() as *const __m256i);
     let unicode_whitespace_patterns2 = _mm256_set1_epi16(UNICODE_WHITESPACE_PATTERNS[16] as i16);
 
     // Load the chunk into an AVX2 register
@@ -227,6 +231,7 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     // Use the masks to count words and character types
     count_words_and_chars(chunk.len(), is_two_byte_utf_mask, is_three_byte_utf_mask, is_four_byte_utf_mask, ascii_whitespace_mask, whitespace_mask)
 }
+
 
 fn count_words_and_chars(
     chunk_len: usize,
@@ -455,6 +460,93 @@ fn adjust_word_count(results: &mut Vec<ChunkResult>, bytes: &[u8]) {
             }
         }
     }
+}
+
+
+unsafe fn count_patterns_fallback_chunk(chunk: &[u8]) -> ChunkResult {
+    let mut result = ChunkResult::default();
+    let mut in_whitespace = true;
+    let mut j = 0;
+
+    while j < chunk.len() {
+        let byte = chunk[j];
+
+        // Check for 4-byte UTF-32 characters first
+        if byte & 0xF8 == 0xF0 {
+            if in_whitespace {
+                result.word_count += 1;
+                in_whitespace = false;
+            }
+            result.four_byte_count += 1;
+            if j >= chunk.len() - 4 {
+                result.ending_in_utf32 = true;
+                break;
+            }
+            j += 4;
+            continue;
+        }
+
+        // Check for 3-byte UTF-16 characters
+        if byte & 0xF0 == 0xE0 {
+            if in_whitespace {
+                result.word_count += 1;
+                in_whitespace = false;
+            }
+            result.three_byte_count += 1;
+            if j >= chunk.len() - 3 {
+                result.ending_in_utf16 = true;
+                break;
+            }
+            j += 3;
+            continue;
+        }
+
+        // Check for whitespace
+        if ASCII_WHITESPACE_PATTERNS.contains(&byte) {
+            if !in_whitespace {
+                in_whitespace = true;
+                result.ascii_whitespace_count += 1;
+            }
+        } else if UNICODE_WHITESPACE_PATTERNS.contains(&(byte as u16)) {
+            if !in_whitespace {
+                in_whitespace = true;
+                result.unicode_whitespace_count += 1;
+            }
+            if j >= chunk.len() - 1 {
+                result.ending_in_utf16 = true;
+                break;
+            }
+            j += 2;
+            continue;
+        } else {
+            if in_whitespace {
+                result.word_count += 1;
+                in_whitespace = false;
+            }
+
+            // Check for ASCII characters
+            if byte & 0x80 == 0 {
+                result.ascii_count += 1;
+            } else if byte & 0xE0 == 0xC0 {
+                // Check for 2-byte UTF-8 characters
+                result.two_byte_count += 1;
+                if j >= chunk.len() - 2 {
+                    result.ending_in_utf8 = true;
+                    break;
+                }
+                j += 2;
+                continue;
+            }
+        }
+
+        j += 1;
+    }
+
+    if !in_whitespace {
+        result.ending_in_word = true;
+    }
+
+    result
 }
 
 fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
