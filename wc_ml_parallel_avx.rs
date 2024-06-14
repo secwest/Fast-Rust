@@ -29,7 +29,7 @@
 
 // Import necessary crates and modules
 
-eextern crate memmap;
+extern crate memmap;
 extern crate rayon;
 extern crate num_cpus;
 
