@@ -97,7 +97,7 @@ struct ChunkResult {
     ending_in_utf8: bool,
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
     let mut result = ChunkResult::default();
 
@@ -129,37 +129,30 @@ unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
     chunk_data[..chunk.len()].copy_from_slice(chunk);
     let chunk_data = _mm512_loadu_si512(chunk_data.as_ptr() as *const __m512i);
 
-    // Initialize exclusion masks
-    let mut exclusion_mask = 0u64;
-    let mut whitespace_mask = 0u64;
-
     // Perform all comparisons simultaneously
     let is_two_byte_utf = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, two_byte_utf_mask), two_byte_utf_mask);
     let is_three_byte_utf = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, three_byte_utf_mask), three_byte_utf_mask);
     let is_four_byte_utf = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, four_byte_utf_mask), four_byte_utf_mask);
 
-    // Combine the results into exclusion masks
     let is_two_byte_utf_mask = _mm512_movemask_epi8(is_two_byte_utf) as u64;
     let is_three_byte_utf_mask = _mm512_movemask_epi8(is_three_byte_utf) as u64;
     let is_four_byte_utf_mask = _mm512_movemask_epi8(is_four_byte_utf) as u64;
 
-    exclusion_mask |= is_four_byte_utf_mask | (is_four_byte_utf_mask << 1) | (is_four_byte_utf_mask << 2) | (is_four_byte_utf_mask << 3);
-    is_three_byte_utf_mask ^= exclusion_mask;
-    exclusion_mask |= is_three_byte_utf_mask | (is_three_byte_utf_mask << 1) | (is_three_byte_utf_mask << 2);
-
     // Identify and mask out Unicode whitespace
     let unicode_whitespace_cmp = _mm512_cmpeq_epi16_mask(chunk_data, unicode_whitespace_patterns);
     let unicode_whitespace_mask = _mm512_movemask_epi16(unicode_whitespace_cmp) as u64;
-    unicode_whitespace_mask ^= exclusion_mask;
-    whitespace_mask |= unicode_whitespace_mask;
 
-    is_two_byte_utfmask ^= exclusion_mask;
-    exclusion_mask |= is_two_byte_utf_mask | (is_two_byte_utf_mask << 1);
+    // Check for Unicode whitespace shifted by one byte
+    let shifted_chunk_data = _mm512_srli_si512(chunk_data, 1);
+    let unicode_whitespace_shifted_cmp = _mm512_cmpeq_epi16_mask(shifted_chunk_data, unicode_whitespace_patterns);
+    let unicode_whitespace_shifted_mask = _mm512_movemask_epi16(unicode_whitespace_shifted_cmp) as u64;
+
+    // Combine the masks, shifted appropriately
+    let mut whitespace_mask = unicode_whitespace_mask | (unicode_whitespace_shifted_mask >> 1);
 
     // Identify and count ASCII whitespace
     let ascii_whitespace_cmp = _mm512_cmpeq_epi8_mask(chunk_data, ascii_whitespace_patterns);
     let ascii_whitespace_mask = _mm512_movemask_epi8(ascii_whitespace_cmp) as u64;
-    ascii_whitespace_mask ^= exclusion_mask;
     whitespace_mask |= ascii_whitespace_mask;
 
     // Use the masks to count words and character types
@@ -220,9 +213,7 @@ unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
                 in_whitespace = false;
             }
 
-            if (exclusion_mask & bit) == 0 {
-                result.ascii_count += 1;
-            } else if (is_two_byte_utf_mask & bit) != 0 {
+            if (is_two_byte_utf_mask & bit) != 0 {
                 result.two_byte_count += 1;
                 if j >= chunk.len() - 2 {
                     result.ending_in_utf8 = true;
@@ -230,6 +221,8 @@ unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
                 }
                 j += 2;
                 continue;
+            } else {
+                result.ascii_count += 1;
             }
         }
 
@@ -385,21 +378,86 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     result
 }
 
- 
-unsafe fn count_patterns_fallback_chunk(chunk: &[u8]) -> ChunkResult {
+ #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     let mut result = ChunkResult::default();
+
+    // Create SIMD patterns for leading bytes of UTF sequences
+    let two_byte_utf_mask = _mm256_set1_epi8(0xC0 as i8);  // 110xxxxx
+    let three_byte_utf_mask = _mm256_set1_epi8(0xE0 as i8); // 1110xxxx
+    let four_byte_utf_mask = _mm256_set1_epi8(0xF0 as i8);  // 11110xxx
+
+    // Create an array and populate it with the repeated ASCII whitespace patterns
+    let mut ascii_pattern_array = [0u8; 32];
+    for i in 0..32 {
+        ascii_pattern_array[i] = ASCII_WHITESPACE_PATTERNS[i % ASCII_WHITESPACE_PATTERNS.len()];
+    }
+
+    // Load the array into an AVX2 register
+    let ascii_whitespace_patterns = _mm256_loadu_si256(ascii_pattern_array.as_ptr() as *const __m256i);
+
+    // Create an array and populate it with the first 16 Unicode whitespace patterns
+    let mut unicode_pattern_array1 = [0u16; 16];
+    for i in 0..16 {
+        unicode_pattern_array1[i] = UNICODE_WHITESPACE_PATTERNS[i];
+    }
+
+    // Load the array into an AVX2 register
+    let unicode_whitespace_patterns1 = _mm256_loadu_si256(unicode_pattern_array1.as_ptr() as *const __m256i);
+
+    // Load the 17th Unicode whitespace pattern into an AVX2 register, repeated
+    let unicode_whitespace_patterns2 = _mm256_set1_epi16(UNICODE_WHITESPACE_PATTERNS[16] as i16);
+
+    // Load the chunk into an AVX2 register
+    let mut chunk_data = [0u8; 32];
+    chunk_data[..chunk.len()].copy_from_slice(chunk);
+    let chunk_data = _mm256_loadu_si256(chunk_data.as_ptr() as *const __m256i);
+
+    // Perform all comparisons simultaneously
+    let is_two_byte_utf = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data, two_byte_utf_mask), two_byte_utf_mask);
+    let is_three_byte_utf = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data, three_byte_utf_mask), three_byte_utf_mask);
+    let is_four_byte_utf = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data, four_byte_utf_mask), four_byte_utf_mask);
+
+    let is_two_byte_utf_mask = _mm256_movemask_epi8(is_two_byte_utf) as u32;
+    let is_three_byte_utf_mask = _mm256_movemask_epi8(is_three_byte_utf) as u32;
+    let is_four_byte_utf_mask = _mm256_movemask_epi8(is_four_byte_utf) as u32;
+
+    // Identify and mask out Unicode whitespace
+    let unicode_whitespace_cmp1 = _mm256_cmpeq_epi16(chunk_data, unicode_whitespace_patterns1);
+    let unicode_whitespace_cmp2 = _mm256_cmpeq_epi16(chunk_data, unicode_whitespace_patterns2);
+    let unicode_whitespace_mask1 = _mm256_movemask_epi16(unicode_whitespace_cmp1) as u32;
+    let unicode_whitespace_mask2 = _mm256_movemask_epi16(unicode_whitespace_cmp2) as u32;
+    let unicode_whitespace_mask = unicode_whitespace_mask1 | (unicode_whitespace_mask2 << 16);
+
+    // Check for Unicode whitespace shifted by one byte
+    let shifted_chunk_data = _mm256_srli_si256(chunk_data, 1);
+    let unicode_whitespace_shifted_cmp1 = _mm256_cmpeq_epi16(shifted_chunk_data, unicode_whitespace_patterns1);
+    let unicode_whitespace_shifted_cmp2 = _mm256_cmpeq_epi16(shifted_chunk_data, unicode_whitespace_patterns2);
+    let unicode_whitespace_shifted_mask1 = _mm256_movemask_epi16(unicode_whitespace_shifted_cmp1) as u32;
+    let unicode_whitespace_shifted_mask2 = _mm256_movemask_epi16(unicode_whitespace_shifted_cmp2) as u32;
+    let unicode_whitespace_shifted_mask = unicode_whitespace_shifted_mask1 | (unicode_whitespace_shifted_mask2 << 16);
+
+    // Combine the masks, shifted appropriately
+    let mut whitespace_mask = unicode_whitespace_mask | (unicode_whitespace_shifted_mask >> 1);
+
+    // Identify and count ASCII whitespace
+    let ascii_whitespace_cmp = _mm256_cmpeq_epi8(chunk_data, ascii_whitespace_patterns);
+    let ascii_whitespace_mask = _mm256_movemask_epi8(ascii_whitespace_cmp) as u32;
+    whitespace_mask |= ascii_whitespace_mask;
+
+    // Use the masks to count words and character types
     let mut in_whitespace = true;
     let mut j = 0;
 
     while j < chunk.len() {
-        let byte = chunk[j];
+        let bit = 1 << j;
 
-        // Check for 4-byte UTF-32 characters first
-        if byte & 0xF8 == 0xF0 {
+        if (is_four_byte_utf_mask & bit) != 0 {
             if in_whitespace {
                 result.word_count += 1;
                 in_whitespace = false;
             }
+
             result.four_byte_count += 1;
             if j >= chunk.len() - 4 {
                 result.ending_in_utf32 = true;
@@ -409,12 +467,12 @@ unsafe fn count_patterns_fallback_chunk(chunk: &[u8]) -> ChunkResult {
             continue;
         }
 
-        // Check for 3-byte UTF-16 characters
-        if byte & 0xF0 == 0xE0 {
+        if (is_three_byte_utf_mask & bit) != 0 {
             if in_whitespace {
                 result.word_count += 1;
                 in_whitespace = false;
             }
+
             result.three_byte_count += 1;
             if j >= chunk.len() - 3 {
                 result.ending_in_utf16 = true;
@@ -424,34 +482,28 @@ unsafe fn count_patterns_fallback_chunk(chunk: &[u8]) -> ChunkResult {
             continue;
         }
 
-        // Check for whitespace
-        if ASCII_WHITESPACE_PATTERNS.contains(&byte) {
+        if (whitespace_mask & bit) != 0 {
             if !in_whitespace {
                 in_whitespace = true;
-                result.ascii_whitespace_count += 1;
+                if (ascii_whitespace_mask & bit) != 0 {
+                    result.ascii_whitespace_count += 1;
+                } else {
+                    result.unicode_whitespace_count += 1;
+                    if j >= chunk.len() - 1 {
+                        result.ending_in_utf16 = true;
+                        break;
+                    }
+                    j += 2;
+                    continue;
+                }
             }
-        } else if UNICODE_WHITESPACE_PATTERNS.contains(&(byte as u16)) {
-            if !in_whitespace {
-                in_whitespace = true;
-                result.unicode_whitespace_count += 1;
-            }
-            if j >= chunk.len() - 1 {
-                result.ending_in_utf16 = true;
-                break;
-            }
-            j += 2;
-            continue;
         } else {
             if in_whitespace {
                 result.word_count += 1;
                 in_whitespace = false;
             }
 
-            // Check for ASCII characters
-            if byte & 0x80 == 0 {
-                result.ascii_count += 1;
-            } else if byte & 0xE0 == 0xC0 {
-                // Check for 2-byte UTF-8 characters
+            if (is_two_byte_utf_mask & bit) != 0 {
                 result.two_byte_count += 1;
                 if j >= chunk.len() - 2 {
                     result.ending_in_utf8 = true;
@@ -459,6 +511,8 @@ unsafe fn count_patterns_fallback_chunk(chunk: &[u8]) -> ChunkResult {
                 }
                 j += 2;
                 continue;
+            } else {
+                result.ascii_count += 1;
             }
         }
 
