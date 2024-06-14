@@ -47,7 +47,7 @@ use core::arch::x86_64::{
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use core::arch::x86_64::{
-    _mm256_loadu_si256, _mm256_set1_epi8, _mm256_set1_epi16, 
+    _mm256_loadu_si256, _mm256_set1_epi8, _mm256_set1_epi16, _mm256_and_si256, _mm256_srli_si256,
     _mm256_cmpeq_epi8, _mm256_cmpeq_epi16, _mm256_movemask_epi8, __m256i
 };
 
@@ -230,7 +230,7 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     whitespace_mask |= ascii_whitespace_mask;
 
     // Use the masks to count words and character types
-    count_words_and_chars(chunk.len(), is_two_byte_utf_mask, is_three_byte_utf_mask, is_four_byte_utf_mask, ascii_whitespace_mask, whitespace_mask)
+    count_words_and_chars(chunk.len(), is_two_byte_utf_mask as u64, is_three_byte_utf_mask as u64, is_four_byte_utf_mask as u64, ascii_whitespace_mask as u64, whitespace_mask as u64)
 }
 
 
@@ -253,7 +253,7 @@ fn count_words_and_chars(
         if (is_four_byte_utf_mask & bit) != 0 {
             if in_whitespace 
                 // Start of a new word
-                result.word_count += 1;
+                { result.word_count += 1; }
             in_whitespace = false;
             result.four_byte_count += 1;
             if j >= chunk_len - 4 {
@@ -269,7 +269,7 @@ fn count_words_and_chars(
         if (is_three_byte_utf_mask & bit) != 0 {
             if in_whitespace
                 // Start of a new word
-                result.word_count += 1;
+                { result.word_count += 1; }
             in_whitespace = false;
             result.three_byte_count += 1;
             if j >= chunk_len - 3 {
@@ -302,7 +302,7 @@ fn count_words_and_chars(
         } else {
             if in_whitespace
                 // Start of a new word
-                result.word_count += 1;
+                { result.word_count += 1; }
             in_whitespace = false;
             
             // Check if the current position is the start of a 2-byte UTF-8 character
