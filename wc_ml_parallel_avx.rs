@@ -38,6 +38,7 @@ use rayon::prelude::*;
 use std::env;
 use std::fs::File;
 use std::io;
+use std::sync::LazyLock;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 use core::arch::x86_64::{
@@ -62,7 +63,7 @@ const ASCII_WHITESPACE_PATTERNS: [u8; 6] = [
 ];
 
 // 16-bit patterns to match against for Unicode whitespace characters
-const UNICODE_WHITESPACE_PATTERNS: [u16; 17] = [
+const UNICODE_WHITESPACE_PATTERNS: [u16; 18] = [
     0x00A0, // Non-breaking Space (U+00A0)
     0x1680, // Ogham Space Mark (U+1680)
     0x180E, // Mongolian Vowel Separator (U+180E)
@@ -106,23 +107,23 @@ unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
     let four_byte_utf_mask = _mm512_set1_epi8(0xF0 as i8);  // 11110xxx
 
     // Create an array and populate it with the repeated ASCII whitespace patterns
-    static ASCII_PATTERN_ARRAY_AVX512: [u8; 64] = {
+    static ASCII_PATTERN_ARRAY_AVX512: LazyLock<[u8; 64]> = LazyLock::new(|| {
         let mut arr = [0u8; 64];
         for i in 0..64 {
             arr[i] = ASCII_WHITESPACE_PATTERNS[i % ASCII_WHITESPACE_PATTERNS.len()];
         }
-        arr
-    };
+       arr
+    });
     let ascii_whitespace_patterns = _mm512_loadu_si512(ASCII_PATTERN_ARRAY_AVX512.as_ptr() as *const __m512i);
 
     // Create an array and populate it with the repeated Unicode whitespace patterns
-    static UNICODE_PATTERN_ARRAY_AVX512: [u16; 32] = {
+    static UNICODE_PATTERN_ARRAY_AVX512: LazyLock<[u16; 32]> = LazyLock::new(|| {
         let mut arr = [0u16; 32];
         for i in 0..32 {
             arr[i] = UNICODE_WHITESPACE_PATTERNS[i % UNICODE_WHITESPACE_PATTERNS.len()];
         }
         arr
-    };
+    });
     let unicode_whitespace_patterns = _mm512_loadu_si512(UNICODE_PATTERN_ARRAY_AVX512.as_ptr() as *const __m512i);
 
     // Load the chunk into an AVX-512 register
@@ -171,25 +172,34 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     let four_byte_utf_mask = _mm256_set1_epi8(0xF0 as i8);  // 11110xxx
 
     // Create an array and populate it with the repeated ASCII whitespace patterns
-    static ASCII_PATTERN_ARRAY_AVX2: [u8; 32] = {
+    static ASCII_PATTERN_ARRAY_AVX2: LazyLock<[u8; 32]> = LazyLock::new(|| {
         let mut arr = [0u8; 32];
         for i in 0..32 {
             arr[i] = ASCII_WHITESPACE_PATTERNS[i % ASCII_WHITESPACE_PATTERNS.len()];
         }
         arr
-    };
+    });
     let ascii_whitespace_patterns = _mm256_loadu_si256(ASCII_PATTERN_ARRAY_AVX2.as_ptr() as *const __m256i);
 
-    // Create an array and populate it with the repeated Unicode whitespace patterns
-    static UNICODE_PATTERN_ARRAY_AVX2: [u16; 16] = {
+    // Create arrays and populate them with the repeated Unicode whitespace patterns
+    static UNICODE_PATTERN_ARRAY_AVX2_1: LazyLock<[u16; 16]> = LazyLock::new(|| {
         let mut arr = [0u16; 16];
         for i in 0..16 {
             arr[i] = UNICODE_WHITESPACE_PATTERNS[i % UNICODE_WHITESPACE_PATTERNS.len()];
         }
         arr
-    };
-    let unicode_whitespace_patterns1 = _mm256_loadu_si256(UNICODE_PATTERN_ARRAY_AVX2.as_ptr() as *const __m256i);
-    let unicode_whitespace_patterns2 = _mm256_set1_epi16(UNICODE_WHITESPACE_PATTERNS[16] as i16);
+    });
+
+    static UNICODE_PATTERN_ARRAY_AVX2_2: LazyLock<[u16; 16]> = LazyLock::new(|| {
+        let mut arr = [0u16; 16];
+        for i in 16..32 {
+            arr[i - 16] = UNICODE_WHITESPACE_PATTERNS[i % UNICODE_WHITESPACE_PATTERNS.len()];
+        }
+        arr
+    });
+
+    let unicode_whitespace_patterns1 = _mm256_loadu_si256(UNICODE_PATTERN_ARRAY_AVX2_1.as_ptr() as *const __m256i);
+    let unicode_whitespace_patterns2 = _mm256_loadu_si256(UNICODE_PATTERN_ARRAY_AVX2_2.as_ptr() as *const __m256i);
 
     // Load the chunk into an AVX2 register
     let mut chunk_data = [0u8; 32];
@@ -211,7 +221,7 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     let unicode_whitespace_cmp2 = _mm256_cmpeq_epi16(chunk_data, unicode_whitespace_patterns2);
     let unicode_whitespace_mask1 = _mm256_movemask_epi16(unicode_whitespace_cmp1) as u32;
     let unicode_whitespace_mask2 = _mm256_movemask_epi16(unicode_whitespace_cmp2) as u32;
-    let unicode_whitespace_mask = unicode_whitespace_mask1 | (unicode_whitespace_mask2 << 16);
+    let unicode_whitespace_mask = unicode_whitespace_mask1 | unicode_whitespace_mask2;
 
     // Check for Unicode whitespace shifted by one byte
     let shifted_chunk_data = _mm256_srli_si256(chunk_data, 1);
@@ -219,7 +229,7 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     let unicode_whitespace_shifted_cmp2 = _mm256_cmpeq_epi16(shifted_chunk_data, unicode_whitespace_patterns2);
     let unicode_whitespace_shifted_mask1 = _mm256_movemask_epi16(unicode_whitespace_shifted_cmp1) as u32;
     let unicode_whitespace_shifted_mask2 = _mm256_movemask_epi16(unicode_whitespace_shifted_cmp2) as u32;
-    let unicode_whitespace_shifted_mask = unicode_whitespace_shifted_mask1 | (unicode_whitespace_shifted_mask2 << 16);
+    let unicode_whitespace_shifted_mask = unicode_whitespace_shifted_mask1 | unicode_whitespace_shifted_mask2;
 
     // Combine the masks, shifted appropriately
     let mut whitespace_mask = unicode_whitespace_mask | (unicode_whitespace_shifted_mask >> 1);
@@ -232,7 +242,6 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
     // Use the masks to count words and character types
     count_words_and_chars(chunk.len(), is_two_byte_utf_mask as u64, is_three_byte_utf_mask as u64, is_four_byte_utf_mask as u64, ascii_whitespace_mask as u64, whitespace_mask as u64)
 }
-
 
 fn count_words_and_chars(
     chunk_len: usize,
