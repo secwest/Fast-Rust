@@ -599,13 +599,22 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
     let total_chunks = (bytes.len() + chunk_size - 1) / chunk_size;
     let mut results: Vec<ChunkResult> = vec![ChunkResult::default(); total_chunks];
 
+    // Determine padding size based on AVX2 or AVX512
+    let padding_size = if std::is_x86_feature_detected!("avx512f") {
+        64
+    } else if std::is_x86_feature_detected!("avx2") {
+        32
+    } else {
+        0
+    };
+
     // Process each chunk in parallel using Rayon
     results.par_iter_mut().enumerate().for_each(|(i, result)| {
         let start = i * chunk_size;
         let end = usize::min(start + chunk_size, bytes.len());
 
-        let chunk = if end - start < 64 {
-            let mut padded_chunk = vec![0u8; 64];
+        let chunk = if padding_size > 0 && end - start < padding_size {
+            let mut padded_chunk = vec![0u8; padding_size];
             let real_size = end - start;
             padded_chunk[..real_size].copy_from_slice(&bytes[start..end]);
             padded_chunk
@@ -638,21 +647,20 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
 
     // Adjust the total result for the last partial chunk
     let last_chunk_size = bytes.len() % chunk_size;
-    if last_chunk_size > 0 {
-        let padding_size = chunk_size - last_chunk_size;
-        total_result.ascii_count -= padding_size;
+    if last_chunk_size > 0 && padding_size > 0 {
+        let actual_padding = padding_size - last_chunk_size;
+        total_result.ascii_count -= actual_padding;
 
         // Check if the last byte of the real data is a whitespace character
-        if last_chunk_size > 1 {
-            let last_byte = bytes[bytes.len() - last_chunk_size];
-            if ASCII_WHITESPACE_PATTERNS.contains(&last_byte) || UNICODE_WHITESPACE_PATTERNS.contains(&(last_byte as u16)) {
-                total_result.word_count -= 1;
-            }
+        let last_byte = bytes[bytes.len() - last_chunk_size];
+        if ASCII_WHITESPACE_PATTERNS.contains(&last_byte) || UNICODE_WHITESPACE_PATTERNS.contains(&(last_byte as u16)) {
+            total_result.word_count -= 1;
         }
     }
 
     Ok(total_result)
 }
+
 
 fn main() {
     let args: Vec<String> = env::args().collect();
