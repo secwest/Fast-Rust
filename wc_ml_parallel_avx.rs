@@ -301,6 +301,83 @@ unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
 
     exclusion_mask |= is_two_byte_utf_mask | (is_two_byte_utf_mask << 1);
 
+    while j < chunk.len() {
+        let bit = 1 << j;
+
+        if (is_four_byte_utf_mask & bit) != 0 {
+            if in_whitespace {
+                result.word_count += 1;
+                in_whitespace = false;
+            }
+
+            result.four_byte_count += 1;
+            if j >= chunk.len() - 4 {
+                result.ending_in_utf32 = true;
+                break;
+            }
+            j += 4;
+            continue;
+        }
+
+        if (is_three_byte_utf_mask & bit) != 0 {
+            if in_whitespace {
+                result.word_count += 1;
+                in_whitespace = false;
+            }
+
+            result.three_byte_count += 1;
+            if j >= chunk.len() - 3 {
+                result.ending_in_utf16 = true;
+                break;
+            }
+            j += 3;
+            continue;
+        }
+
+        if (whitespace_mask & bit) != 0 {
+            if !in_whitespace {
+                in_whitespace = true;
+                if (ascii_whitespace_mask & bit) != 0 {
+                    result.ascii_whitespace_count += 1;
+                } else {
+                    result.unicode_whitespace_count += 1;
+                    if j >= chunk.len() - 1 {
+                        result.ending_in_utf16 = true;
+                        break;
+                    }
+                    j += 2;
+                    continue;
+                }
+            }
+        } else {
+            if in_whitespace {
+                result.word_count += 1;
+                in_whitespace = false;
+            }
+
+            if (exclusion_mask & bit) == 0 {
+                result.ascii_count += 1;
+            } else if (is_two_byte_utf_mask & bit) != 0 {
+                result.two_byte_count += 1;
+                if j >= chunk.len() - 2 {
+                    result.ending_in_utf8 = true;
+                    break;
+                }
+                j += 2;
+                continue;
+            }
+        }
+
+        j += 1;
+    }
+
+    if !in_whitespace {
+        result.ending_in_word = true;
+    }
+
+    result
+}
+
     // Identify and count ASCII whitespace
     let ascii_whitespace_cmp = _mm256_cmpeq_epi8(chunk_data, ascii_whitespace_patterns);
     let ascii_whitespace_mask = _mm256_movemask_epi8(ascii_whitespace_cmp) as u32;
