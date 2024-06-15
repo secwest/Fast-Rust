@@ -104,95 +104,199 @@ struct ChunkResult {
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-static ASCII_WHITESPACE_VECTORS_AVX512: LazyLock<[__m512i; 6]> = LazyLock::new(|| {
-    let mut vectors = [_mm512_setzero_si512(); 6];
-    for (i, &pattern) in ASCII_WHITESPACE_PATTERNS.iter().enumerate() {
-        vectors[i] = _mm512_set1_epi8(pattern as i8);
+unsafe fn compare_unicode_whitespace_avx512(chunk_ptr: *const u8) -> u64 {
+    let chunk_data = _mm512_loadu_si512(chunk_ptr as *const __m512i);
+    let shifted_chunk_data = _mm512_srli_si512(chunk_data, 1);
+    let mut result_mask = 0u64;
+    let mut shifted_result_mask = 0u64;
+
+    // Compare original and shifted chunk data in the same loop
+    for &pattern in UNICODE_WHITESPACE_PATTERNS.iter() {
+        let pattern_vec = _mm512_set1_epi16(pattern as i16);
+
+        // Compare original chunk data
+        let cmp_mask = _mm512_cmpeq_epi16_mask(chunk_data, pattern_vec);
+        result_mask |= _mm512_movemask_epi16(cmp_mask) as u64;
+
+        // Compare shifted chunk data
+        let shifted_cmp_mask = _mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec);
+        shifted_result_mask |= (_mm512_movemask_epi16(shifted_cmp_mask) as u64) >> 1;
     }
-    vectors
-});
+
+    result_mask | shifted_result_mask
+}
+
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-static ASCII_WHITESPACE_VECTORS_AVX2: LazyLock<[__m256i; 6]> = LazyLock::new(|| {
-    let mut vectors = [_mm256_setzero_si256(); 6];
-    for (i, &pattern) in ASCII_WHITESPACE_PATTERNS.iter().enumerate() {
-        vectors[i] = _mm256_set1_epi8(pattern as i8);
-    }
-    vectors
-});
+unsafe fn compare_unicode_whitespace_avx2(chunk_ptr: *const u8) -> u32 {
+    let chunk_data = _mm256_loadu_si256(chunk_ptr as *const __m256i);
+    let shifted_chunk_data = _mm256_srli_si256(chunk_data, 1);
+    let mut result_mask = 0u32;
+    let mut shifted_result_mask = 0u32;
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-static UNICODE_WHITESPACE_VECTORS_AVX512: LazyLock<[__m512i; 18]> = LazyLock::new(|| {
-    let mut vectors = [_mm512_setzero_si512(); 18];
-    for (i, &pattern) in UNICODE_WHITESPACE_PATTERNS.iter().enumerate() {
-        vectors[i] = _mm512_set1_epi16(pattern as i16);
+    // Compare original and shifted chunk data in the same loop
+    for &pattern in UNICODE_WHITESPACE_PATTERNS.iter() {
+        let pattern_vec = _mm256_set1_epi16(pattern as i16);
+
+        // Compare original chunk data
+        let cmp_mask = _mm256_cmpeq_epi16(chunk_data, pattern_vec);
+        result_mask |= _mm256_movemask_epi16(cmp_mask) as u32;
+
+        // Compare shifted chunk data
+        let shifted_cmp_mask = _mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec);
+        shifted_result_mask |= (_mm256_movemask_epi16(shifted_cmp_mask) as u32) >> 1;
     }
-    vectors
-});
+
+    result_mask | shifted_result_mask
+}
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-static UNICODE_WHITESPACE_VECTORS_AVX2: LazyLock<[__m256i; 18]> = LazyLock::new(|| {
-    let mut vectors = [_mm256_setzero_si256(); 18];
-    for (i, &pattern) in UNICODE_WHITESPACE_PATTERNS.iter().enumerate() {
-        vectors[i] = _mm256_set1_epi16(pattern as i16);
+unsafe fn unicode_whitespace_compare_avx(chunk_ptr: *const u8) -> u64 {
+    if std::is_x86_feature_detected!("avx512f") {
+        compare_unicode_whitespace_avx512(chunk_ptr)
+    } else {
+        let mask1 = compare_unicode_whitespace_avx2(chunk_ptr);
+        let mask2 = compare_unicode_whitespace_avx2(chunk_ptr.add(32));
+        (mask2 as u64) << 32 | mask1 as u64
     }
-    vectors
-});
+}
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-static UTF16_LEADING_BYTE_VECTOR_AVX512: LazyLock<__m512i> = LazyLock::new(|| {
-    _mm512_set1_epi16(UTF16_LEADING_BYTE_MASK as i16)
-});
-
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-static UTF32_LEADING_BYTE_VECTOR_AVX512: LazyLock<__m512i> = LazyLock::new(|| {
-    _mm512_set1_epi32(UTF32_LEADING_BYTE_MASK as i32)
-});
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-static UTF16_LEADING_BYTE_VECTOR_AVX2: LazyLock<__m256i> = LazyLock::new(|| {
-    _mm256_set1_epi16(UTF16_LEADING_BYTE_MASK as i16)
-});
+unsafe fn compare_ascii_whitespace_avx2(chunk_ptr: *const u8) -> u32 {
+    let chunk_data = _mm256_loadu_si256(chunk_ptr as *const __m256i);
+    let mut result_mask = 0u32;
+
+    // Unroll comparisons for each pattern
+    let pattern1 = _mm256_set1_epi8(ASCII_WHITESPACE_PATTERNS[0] as i8);
+    let cmp1 = _mm256_cmpeq_epi8(chunk_data, pattern1);
+    result_mask |= _mm256_movemask_epi8(cmp1) as u32;
+
+    let pattern2 = _mm256_set1_epi8(ASCII_WHITESPACE_PATTERNS[1] as i8);
+    let cmp2 = _mm256_cmpeq_epi8(chunk_data, pattern2);
+    result_mask |= _mm256_movemask_epi8(cmp2) as u32;
+
+    let pattern3 = _mm256_set1_epi8(ASCII_WHITESPACE_PATTERNS[2] as i8);
+    let cmp3 = _mm256_cmpeq_epi8(chunk_data, pattern3);
+    result_mask |= _mm256_movemask_epi8(cmp3) as u32;
+
+    let pattern4 = _mm256_set1_epi8(ASCII_WHITESPACE_PATTERNS[3] as i8);
+    let cmp4 = _mm256_cmpeq_epi8(chunk_data, pattern4);
+    result_mask |= _mm256_movemask_epi8(cmp4) as u32;
+
+    let pattern5 = _mm256_set1_epi8(ASCII_WHITESPACE_PATTERNS[4] as i8);
+    let cmp5 = _mm256_cmpeq_epi8(chunk_data, pattern5);
+    result_mask |= _mm256_movemask_epi8(cmp5) as u32;
+
+    let pattern6 = _mm256_set1_epi8(ASCII_WHITESPACE_PATTERNS[5] as i8);
+    let cmp6 = _mm256_cmpeq_epi8(chunk_data, pattern6);
+    result_mask |= _mm256_movemask_epi8(cmp6) as u32;
+
+    result_mask
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+unsafe fn compare_ascii_whitespace_avx512(chunk_ptr: *const u8) -> u64 {
+    let chunk_data = _mm512_loadu_si512(chunk_ptr as *const __m512i);
+    let mut result_mask = 0u64;
+
+    // Unroll comparisons for each pattern
+    let pattern1 = _mm512_set1_epi8(ASCII_WHITESPACE_PATTERNS[0] as i8);
+    let cmp1 = _mm512_cmpeq_epi8_mask(chunk_data, pattern1);
+    result_mask |= _mm512_movemask_epi8(cmp1) as u64;
+
+    let pattern2 = _mm512_set1_epi8(ASCII_WHITESPACE_PATTERNS[1] as i8);
+    let cmp2 = _mm512_cmpeq_epi8_mask(chunk_data, pattern2);
+    result_mask |= _mm512_movemask_epi8(cmp2) as u64;
+
+    let pattern3 = _mm512_set1_epi8(ASCII_WHITESPACE_PATTERNS[2] as i8);
+    let cmp3 = _mm512_cmpeq_epi8_mask(chunk_data, pattern3);
+    result_mask |= _mm512_movemask_epi8(cmp3) as u64;
+
+    let pattern4 = _mm512_set1_epi8(ASCII_WHITESPACE_PATTERNS[3] as i8);
+    let cmp4 = _mm512_cmpeq_epi8_mask(chunk_data, pattern4);
+    result_mask |= _mm512_movemask_epi8(cmp4) as u64;
+
+    let pattern5 = _mm512_set1_epi8(ASCII_WHITESPACE_PATTERNS[4] as i8);
+    let cmp5 = _mm512_cmpeq_epi8_mask(chunk_data, pattern5);
+    result_mask |= _mm512_movemask_epi8(cmp5) as u64;
+
+    let pattern6 = _mm512_set1_epi8(ASCII_WHITESPACE_PATTERNS[5] as i8);
+    let cmp6 = _mm512_cmpeq_epi8_mask(chunk_data, pattern6);
+    result_mask |= _mm512_movemask_epi8(cmp6) as u64;
+
+    result_mask
+}
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-static UTF32_LEADING_BYTE_VECTOR_AVX2: LazyLock<__m256i> = LazyLock::new(|| {
-    _mm256_set1_epi32(UTF32_LEADING_BYTE_MASK as i32)
-});
+unsafe fn ascii_whitespace_compare_avx(chunk_ptr: *const u8) -> u64 {
+    if std::is_x86_feature_detected!("avx512f") {
+        compare_ascii_whitespace_avx512(chunk_ptr)
+    } else {
+        let mask1 = compare_ascii_whitespace_avx2(chunk_ptr);
+        let mask2 = compare_ascii_whitespace_avx2(chunk_ptr.add(32));
+        (mask2 as u64) << 32 | mask1 as u64
+    }
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8, chunk_len: usize) -> ChunkResult {
+    // Process the first 32-byte chunk
+    let chunk_data1 = _mm256_loadu_si256(chunk_ptr as *const __m256i);
+    let chunk_data2 = _mm256_loadu_si256(chunk_ptr.add(32) as *const __m256i);
+
+    // Create SIMD patterns for leading bytes of UTF sequences
+    let two_byte_utf_mask = _mm256_set1_epi8(0xC0 as i8);  // 110xxxxx
+    let three_byte_utf_mask = _mm256_set1_epi8(0xE0 as i8); // 1110xxxx
+    let four_byte_utf_mask = _mm256_set1_epi8(0xF0 as i8);  // 11110xxx
+
+    // Perform UTF sequence comparisons for the first chunk
+    let is_two_byte_utf1 = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data1, two_byte_utf_mask), two_byte_utf_mask);
+    let is_three_byte_utf1 = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data1, three_byte_utf_mask), three_byte_utf_mask);
+    let is_four_byte_utf1 = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data1, four_byte_utf_mask), four_byte_utf_mask);
+
+    let is_two_byte_utf_mask1 = _mm256_movemask_epi8(is_two_byte_utf1) as u32;
+    let is_three_byte_utf_mask1 = _mm256_movemask_epi8(is_three_byte_utf1) as u32;
+    let is_four_byte_utf_mask1 = _mm256_movemask_epi8(is_four_byte_utf1) as u32;
+
+    // Perform UTF sequence comparisons for the second chunk
+    let is_two_byte_utf2 = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data2, two_byte_utf_mask), two_byte_utf_mask);
+    let is_three_byte_utf2 = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data2, three_byte_utf_mask), three_byte_utf_mask);
+    let is_four_byte_utf2 = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data2, four_byte_utf_mask), four_byte_utf_mask);
+
+    let is_two_byte_utf_mask2 = _mm256_movemask_epi8(is_two_byte_utf2) as u32;
+    let is_three_byte_utf_mask2 = _mm256_movemask_epi8(is_three_byte_utf2) as u32;
+    let is_four_byte_utf_mask2 = _mm256_movemask_epi8(is_four_byte_utf2) as u32;
+
+    // Combine the masks for the entire 64-byte chunk
+    let is_two_byte_utf_mask = (is_two_byte_utf_mask2 as u64) << 32 | is_two_byte_utf_mask1 as u64;
+    let is_three_byte_utf_mask = (is_three_byte_utf_mask2 as u64) << 32 | is_three_byte_utf_mask1 as u64;
+    let is_four_byte_utf_mask = (is_four_byte_utf_mask2 as u64) << 32 | is_four_byte_utf_mask1 as u64;
+
+    // Identify and mask out ASCII whitespace
+    let ascii_whitespace_mask = ascii_whitespace_compare_avx(chunk_ptr);
+
+    // Identify and mask out Unicode whitespace
+    let unicode_whitespace_mask = unicode_whitespace_compare_avx(chunk_ptr);
+
+    // Combine the masks
+    let whitespace_mask = ascii_whitespace_mask | unicode_whitespace_mask;
+
+    // Use the masks to count words and character types
+    count_words_and_chars(chunk_len, is_two_byte_utf_mask, is_three_byte_utf_mask, is_four_byte_utf_mask, ascii_whitespace_mask, whitespace_mask)
+}
 
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
+unsafe fn count_patterns_avx512_chunk(chunk_ptr: *const u8, chunk_len: usize) -> ChunkResult {
+    let chunk_data = _mm512_loadu_si512(chunk_ptr as *const __m512i);
+
     // Create SIMD patterns for leading bytes of UTF sequences
     let two_byte_utf_mask = _mm512_set1_epi8(0xC0 as i8);  // 110xxxxx
     let three_byte_utf_mask = _mm512_set1_epi8(0xE0 as i8); // 1110xxxx
     let four_byte_utf_mask = _mm512_set1_epi8(0xF0 as i8);  // 11110xxx
 
-    // Create an array and populate it with the repeated ASCII whitespace patterns
-    static ASCII_PATTERN_ARRAY_AVX512: LazyLock<[u8; 64]> = LazyLock::new(|| {
-        let mut arr = [0u8; 64];
-        for i in 0..64 {
-            arr[i] = ASCII_WHITESPACE_PATTERNS[i % ASCII_WHITESPACE_PATTERNS.len()];
-        }
-       arr
-    });
-    let ascii_whitespace_patterns = _mm512_loadu_si512(ASCII_PATTERN_ARRAY_AVX512.as_ptr() as *const __m512i);
-
-    // Create an array and populate it with the repeated Unicode whitespace patterns
-    static UNICODE_PATTERN_ARRAY_AVX512: LazyLock<[u16; 32]> = LazyLock::new(|| {
-        let mut arr = [0u16; 32];
-        for i in 0..32 {
-            arr[i] = UNICODE_WHITESPACE_PATTERNS[i % UNICODE_WHITESPACE_PATTERNS.len()];
-        }
-        arr
-    });
-    let unicode_whitespace_patterns = _mm512_loadu_si512(UNICODE_PATTERN_ARRAY_AVX512.as_ptr() as *const __m512i);
-
-    // Load the chunk into an AVX-512 register
-    let mut chunk_data = [0u8; 64];
-    chunk_data[..chunk.len()].copy_from_slice(chunk);
-    let chunk_data = _mm512_loadu_si512(chunk_data.as_ptr() as *const __m512i);
-
-    // Perform all comparisons simultaneously
+    // Perform UTF sequence comparisons
     let is_two_byte_utf = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, two_byte_utf_mask), two_byte_utf_mask);
     let is_three_byte_utf = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, three_byte_utf_mask), three_byte_utf_mask);
     let is_four_byte_utf = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, four_byte_utf_mask), four_byte_utf_mask);
@@ -201,108 +305,54 @@ unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
     let is_three_byte_utf_mask = _mm512_movemask_epi8(is_three_byte_utf) as u64;
     let is_four_byte_utf_mask = _mm512_movemask_epi8(is_four_byte_utf) as u64;
 
+    // Identify and mask out ASCII whitespace
+    let ascii_whitespace_mask = compare_ascii_whitespace_avx512(chunk_ptr);
+
     // Identify and mask out Unicode whitespace
-    let unicode_whitespace_cmp = _mm512_cmpeq_epi16_mask(chunk_data, unicode_whitespace_patterns);
-    let unicode_whitespace_mask = _mm512_movemask_epi16(unicode_whitespace_cmp) as u64;
+    let unicode_whitespace_mask = compare_unicode_whitespace_avx512(chunk_ptr);
 
-    // Check for Unicode whitespace shifted by one byte
-    let shifted_chunk_data = _mm512_srli_si512(chunk_data, 1);
-    let unicode_whitespace_shifted_cmp = _mm512_cmpeq_epi16_mask(shifted_chunk_data, unicode_whitespace_patterns);
-    let unicode_whitespace_shifted_mask = _mm512_movemask_epi16(unicode_whitespace_shifted_cmp) as u64;
-
-    // Combine the masks, shifted appropriately
-    let mut whitespace_mask = unicode_whitespace_mask | (unicode_whitespace_shifted_mask >> 1);
-
-    // Identify and count ASCII whitespace
-    let ascii_whitespace_cmp = _mm512_cmpeq_epi8_mask(chunk_data, ascii_whitespace_patterns);
-    let ascii_whitespace_mask = _mm512_movemask_epi8(ascii_whitespace_cmp) as u64;
-    whitespace_mask |= ascii_whitespace_mask;
+    // Combine the masks
+    let whitespace_mask = ascii_whitespace_mask | unicode_whitespace_mask;
 
     // Use the masks to count words and character types
-    count_words_and_chars(chunk.len(), is_two_byte_utf_mask, is_three_byte_utf_mask, is_four_byte_utf_mask, ascii_whitespace_mask, whitespace_mask)
+    count_words_and_chars(chunk_len, is_two_byte_utf_mask, is_three_byte_utf_mask, is_four_byte_utf_mask, ascii_whitespace_mask, whitespace_mask)
 }
 
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-unsafe fn count_patterns_avx2_chunk(chunk: &[u8]) -> ChunkResult {
-    let mut result = ChunkResult::default();
+
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
+    let chunk_len = chunk.len();
+    let chunk_data = _mm512_loadu_si512(chunk.as_ptr() as *const __m512i);
 
     // Create SIMD patterns for leading bytes of UTF sequences
-    let two_byte_utf_mask = _mm256_set1_epi8(0xC0 as i8);  // 110xxxxx
-    let three_byte_utf_mask = _mm256_set1_epi8(0xE0 as i8); // 1110xxxx
-    let four_byte_utf_mask = _mm256_set1_epi8(0xF0 as i8);  // 11110xxx
+    let two_byte_utf_mask = _mm512_set1_epi8(0xC0 as i8);  // 110xxxxx
+    let three_byte_utf_mask = _mm512_set1_epi8(0xE0 as i8); // 1110xxxx
+    let four_byte_utf_mask = _mm512_set1_epi8(0xF0 as i8);  // 11110xxx
 
-    // Create an array and populate it with the repeated ASCII whitespace patterns
-    static ASCII_PATTERN_ARRAY_AVX2: LazyLock<[u8; 32]> = LazyLock::new(|| {
-        let mut arr = [0u8; 32];
-        for i in 0..32 {
-            arr[i] = ASCII_WHITESPACE_PATTERNS[i % ASCII_WHITESPACE_PATTERNS.len()];
-        }
-        arr
-    });
-    let ascii_whitespace_patterns = _mm256_loadu_si256(ASCII_PATTERN_ARRAY_AVX2.as_ptr() as *const __m256i);
+    // Perform UTF sequence comparisons
+    let is_two_byte_utf = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, two_byte_utf_mask), two_byte_utf_mask);
+    let is_three_byte_utf = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, three_byte_utf_mask), three_byte_utf_mask);
+    let is_four_byte_utf = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, four_byte_utf_mask), four_byte_utf_mask);
 
-    // Create arrays and populate them with the repeated Unicode whitespace patterns
-    static UNICODE_PATTERN_ARRAY_AVX2_1: LazyLock<[u16; 16]> = LazyLock::new(|| {
-        let mut arr = [0u16; 16];
-        for i in 0..16 {
-            arr[i] = UNICODE_WHITESPACE_PATTERNS[i % UNICODE_WHITESPACE_PATTERNS.len()];
-        }
-        arr
-    });
+    let is_two_byte_utf_mask = _mm512_movemask_epi8(is_two_byte_utf) as u64;
+    let is_three_byte_utf_mask = _mm512_movemask_epi8(is_three_byte_utf) as u64;
+    let is_four_byte_utf_mask = _mm512_movemask_epi8(is_four_byte_utf) as u64;
 
-    static UNICODE_PATTERN_ARRAY_AVX2_2: LazyLock<[u16; 16]> = LazyLock::new(|| {
-        let mut arr = [0u16; 16];
-        for i in 16..32 {
-            arr[i - 16] = UNICODE_WHITESPACE_PATTERNS[i % UNICODE_WHITESPACE_PATTERNS.len()];
-        }
-        arr
-    });
-
-    let unicode_whitespace_patterns1 = _mm256_loadu_si256(UNICODE_PATTERN_ARRAY_AVX2_1.as_ptr() as *const __m256i);
-    let unicode_whitespace_patterns2 = _mm256_loadu_si256(UNICODE_PATTERN_ARRAY_AVX2_2.as_ptr() as *const __m256i);
-
-    // Load the chunk into an AVX2 register
-    let mut chunk_data = [0u8; 32];
-    chunk_data[..chunk.len()].copy_from_slice(chunk);
-    let chunk_data = _mm256_loadu_si256(chunk_data.as_ptr() as *const __m256i);
-
-    // Perform all comparisons simultaneously
-    let is_two_byte_utf = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data, two_byte_utf_mask), two_byte_utf_mask);
-    let is_three_byte_utf = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data, three_byte_utf_mask), three_byte_utf_mask);
-    let is_four_byte_utf = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data, four_byte_utf_mask), four_byte_utf_mask);
-
-    // Combine the results into masks
-    let is_two_byte_utf_mask = _mm256_movemask_epi8(is_two_byte_utf) as u32;
-    let is_three_byte_utf_mask = _mm256_movemask_epi8(is_three_byte_utf) as u32;
-    let is_four_byte_utf_mask = _mm256_movemask_epi8(is_four_byte_utf) as u32;
+    // Identify and mask out ASCII whitespace
+    let ascii_whitespace_mask = compare_ascii_whitespace_avx512(chunk);
 
     // Identify and mask out Unicode whitespace
-    let unicode_whitespace_cmp1 = _mm256_cmpeq_epi16(chunk_data, unicode_whitespace_patterns1);
-    let unicode_whitespace_cmp2 = _mm256_cmpeq_epi16(chunk_data, unicode_whitespace_patterns2);
-    let unicode_whitespace_mask1 = _mm256_movemask_epi16(unicode_whitespace_cmp1) as u32;
-    let unicode_whitespace_mask2 = _mm256_movemask_epi16(unicode_whitespace_cmp2) as u32;
-    let unicode_whitespace_mask = unicode_whitespace_mask1 | unicode_whitespace_mask2;
+    let unicode_whitespace_mask = compare_unicode_whitespace_avx512(chunk);
 
-    // Check for Unicode whitespace shifted by one byte
-    let shifted_chunk_data = _mm256_srli_si256(chunk_data, 1);
-    let unicode_whitespace_shifted_cmp1 = _mm256_cmpeq_epi16(shifted_chunk_data, unicode_whitespace_patterns1);
-    let unicode_whitespace_shifted_cmp2 = _mm256_cmpeq_epi16(shifted_chunk_data, unicode_whitespace_patterns2);
-    let unicode_whitespace_shifted_mask1 = _mm256_movemask_epi16(unicode_whitespace_shifted_cmp1) as u32;
-    let unicode_whitespace_shifted_mask2 = _mm256_movemask_epi16(unicode_whitespace_shifted_cmp2) as u32;
-    let unicode_whitespace_shifted_mask = unicode_whitespace_shifted_mask1 | unicode_whitespace_shifted_mask2;
-
-    // Combine the masks, shifted appropriately
-    let mut whitespace_mask = unicode_whitespace_mask | (unicode_whitespace_shifted_mask >> 1);
-
-    // Identify and count ASCII whitespace
-    let ascii_whitespace_cmp = _mm256_cmpeq_epi8(chunk_data, ascii_whitespace_patterns);
-    let ascii_whitespace_mask = _mm256_movemask_epi8(ascii_whitespace_cmp) as u32;
-    whitespace_mask |= ascii_whitespace_mask;
+    // Combine the masks
+    let whitespace_mask = ascii_whitespace_mask | unicode_whitespace_mask;
 
     // Use the masks to count words and character types
-    count_words_and_chars(chunk.len(), is_two_byte_utf_mask as u64, is_three_byte_utf_mask as u64, is_four_byte_utf_mask as u64, ascii_whitespace_mask as u64, whitespace_mask as u64)
+    count_words_and_chars(chunk_len, is_two_byte_utf_mask, is_three_byte_utf_mask, is_four_byte_utf_mask, ascii_whitespace_mask, whitespace_mask)
 }
+
 
 fn count_words_and_chars(
     chunk_len: usize,
