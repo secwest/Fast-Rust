@@ -84,6 +84,10 @@ const UNICODE_WHITESPACE_PATTERNS: [u16; 18] = [
     0x3000  // Ideographic Space (U+3000)
 ];
 
+// UTF-16 and UTF-32 leading byte masks
+const UTF16_LEADING_BYTE_MASK: u16 = 0xD800; // Leading byte for UTF-16 surrogate pairs
+const UTF32_LEADING_BYTE_MASK: u32 = 0x0000D800; // Leading byte for UTF-32 surrogate pairs
+
 #[derive(Default)]
 struct ChunkResult {
     ascii_count: usize,
@@ -98,6 +102,63 @@ struct ChunkResult {
     ending_in_utf16: bool,
     ending_in_utf8: bool,
 }
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+static ASCII_WHITESPACE_VECTORS_AVX512: LazyLock<[__m512i; 6]> = LazyLock::new(|| {
+    let mut vectors = [_mm512_setzero_si512(); 6];
+    for (i, &pattern) in ASCII_WHITESPACE_PATTERNS.iter().enumerate() {
+        vectors[i] = _mm512_set1_epi8(pattern as i8);
+    }
+    vectors
+});
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+static ASCII_WHITESPACE_VECTORS_AVX2: LazyLock<[__m256i; 6]> = LazyLock::new(|| {
+    let mut vectors = [_mm256_setzero_si256(); 6];
+    for (i, &pattern) in ASCII_WHITESPACE_PATTERNS.iter().enumerate() {
+        vectors[i] = _mm256_set1_epi8(pattern as i8);
+    }
+    vectors
+});
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+static UNICODE_WHITESPACE_VECTORS_AVX512: LazyLock<[__m512i; 18]> = LazyLock::new(|| {
+    let mut vectors = [_mm512_setzero_si512(); 18];
+    for (i, &pattern) in UNICODE_WHITESPACE_PATTERNS.iter().enumerate() {
+        vectors[i] = _mm512_set1_epi16(pattern as i16);
+    }
+    vectors
+});
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+static UNICODE_WHITESPACE_VECTORS_AVX2: LazyLock<[__m256i; 18]> = LazyLock::new(|| {
+    let mut vectors = [_mm256_setzero_si256(); 18];
+    for (i, &pattern) in UNICODE_WHITESPACE_PATTERNS.iter().enumerate() {
+        vectors[i] = _mm256_set1_epi16(pattern as i16);
+    }
+    vectors
+});
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+static UTF16_LEADING_BYTE_VECTOR_AVX512: LazyLock<__m512i> = LazyLock::new(|| {
+    _mm512_set1_epi16(UTF16_LEADING_BYTE_MASK as i16)
+});
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+static UTF32_LEADING_BYTE_VECTOR_AVX512: LazyLock<__m512i> = LazyLock::new(|| {
+    _mm512_set1_epi32(UTF32_LEADING_BYTE_MASK as i32)
+});
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+static UTF16_LEADING_BYTE_VECTOR_AVX2: LazyLock<__m256i> = LazyLock::new(|| {
+    _mm256_set1_epi16(UTF16_LEADING_BYTE_MASK as i16)
+});
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+static UTF32_LEADING_BYTE_VECTOR_AVX2: LazyLock<__m256i> = LazyLock::new(|| {
+    _mm256_set1_epi32(UTF32_LEADING_BYTE_MASK as i32)
+});
+
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
