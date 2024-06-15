@@ -317,6 +317,22 @@ fn count_words_and_chars(
     while j < chunk_len {
         let bit = 1 << j;
 
+
+	    
+        let current_char = chunk.get(j).copied().unwrap_or(0);
+        let current_char_utf8 = String::from_utf8_lossy(&chunk[j..j + 4.min(chunk.len() - j)]);
+
+        println!("Position: {}, Bit: {:064b}", j, bit);
+        println!("Current char (ASCII): {}", current_char);
+        println!("Current char (UTF-8): {}", current_char_utf8);
+        println!("is_two_byte_utf_mask: {:064b}", is_two_byte_utf_mask);
+        println!("is_three_byte_utf_mask: {:064b}", is_three_byte_utf_mask);
+        println!("is_four_byte_utf_mask: {:064b}", is_four_byte_utf_mask);
+        println!("ascii_whitespace_mask: {:064b}", ascii_whitespace_mask);
+        println!("whitespace_mask: {:064b}", whitespace_mask);
+        println!("in_whitespace: {}", in_whitespace);
+        println!("Current counts: {:?}", result);
+
         // Check if the current position is the start of a 4-byte UTF-8 character
         if (is_four_byte_utf_mask & bit) != 0 {
             if in_whitespace { 
