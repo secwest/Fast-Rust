@@ -25,7 +25,7 @@
 // (C) Copyright 2024 Dragos Ruiu
 //
 // Dedicated to Rob "@ErrataRob" Graham
-// ....and my dear mom, who is struggling, as I type. You really were the one who taught me numerical analysis.
+// ....and my dear mom, who is struggling, as I type. You really were the one who taught me algorithmic numerical analysis.
 
 // Import necessary crates and modules
 
