@@ -197,18 +197,27 @@ unsafe fn compare_unicode_whitespace_avx2(chunk_data: __m256i, shifted_chunk_dat
     result_mask | shifted_result_mask
 }
 
-
-
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 unsafe fn unicode_whitespace_compare_avx(chunk_ptr: *const u8) -> u64 {
-    if std::is_x86_feature_detected!("avx512f") {
-        compare_unicode_whitespace_avx512(chunk_ptr)
-    } else {
-        let mask1 = compare_unicode_whitespace_avx2(chunk_ptr);
-        let mask2 = compare_unicode_whitespace_avx2(chunk_ptr.add(32));
-        (mask2 as u64) << 32 | mask1 as u64
-    }
+    let chunk_data1 = _mm256_loadu_si256(chunk_ptr as *const __m256i);
+    let chunk_data2 = _mm256_loadu_si256(chunk_ptr.add(32) as *const __m256i);
+    let shifted_chunk_data1 = _mm256_srli_si256(chunk_data1, 1);
+    let shifted_chunk_data2 = _mm256_srli_si256(chunk_data2, 1);
+
+    let mask1 = compare_unicode_whitespace_avx2(chunk_data1, shifted_chunk_data1);
+    let mask2 = compare_unicode_whitespace_avx2(chunk_data2, shifted_chunk_data2);
+
+    (mask2 as u64) << 32 | mask1 as u64
 }
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+unsafe fn unicode_whitespace_compare_avx(chunk_ptr: *const u8) -> u64 {
+    let chunk_data = _mm512_loadu_si512(chunk_ptr as *const __m512i);
+    let shifted_chunk_data = _mm512_srli_si512(chunk_data, 1);
+    compare_unicode_whitespace_avx512(chunk_data, shifted_chunk_data)
+}
+
+
 
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
