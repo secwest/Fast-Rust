@@ -184,51 +184,92 @@ unsafe fn compare_unicode_whitespace_avx512(chunk_data: __m512i, shifted_chunk_d
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 unsafe fn compare_unicode_whitespace_avx2(chunk_data: __m256i, shifted_chunk_data: __m256i) -> u32 {
+    // Initialize result masks for original and shifted data
     let mut result_mask = 0u32;
     let mut shifted_result_mask = 0u32;
 
-    // Compare original and shifted chunk data in the same loop
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x00A0 as i16))) as u32; // Non-breaking Space (U+00A0)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x1680 as i16))) as u32; // Ogham Space Mark (U+1680)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x180E as i16))) as u32; // Mongolian Vowel Separator (U+180E)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x2000 as i16))) as u32; // En Quad (U+2000)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x2001 as i16))) as u32; // Em Quad (U+2001)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x2002 as i16))) as u32; // En Space (U+2002)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x2003 as i16))) as u32; // Em Space (U+2003)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x2004 as i16))) as u32; // Three-per-em Space (U+2004)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x2005 as i16))) as u32; // Four-per-em Space (U+2005)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x2006 as i16))) as u32; // Six-per-em Space (U+2006)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x2007 as i16))) as u32; // Figure Space (U+2007)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x2008 as i16))) as u32; // Punctuation Space (U+2008)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x2009 as i16))) as u32; // Thin Space (U+2009)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x200A as i16))) as u32; // Hair Space (U+200A)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x2028 as i16))) as u32; // Line Separator (U+2028)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x2029 as i16))) as u32; // Paragraph Separator (U+2029)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x205F as i16))) as u32; // Medium Mathematical Space (U+205F)
-    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x3000 as i16))) as u32; // Ideographic Space (U+3000)
+    // Macro to compare and create bitmask in a single step without temporary variables
+    macro_rules! compare_and_mask_inline {
+        ($data:expr, $value:expr) => {
+            // Perform the comparison of 16-bit elements with the given value
+            (_mm256_movemask_epi8(
+                // Convert packed 8-bit results back to 16-bit
+                _mm256_cvtepi8_epi16(
+                    // Cast the lower 128 bits of the 256-bit vector to 128-bit
+                    _mm256_castsi256_si128(
+                        // Pack the 16-bit comparison results into 8-bit results
+                        _mm256_packs_epi16(
+                            // Compare each 16-bit element in the data with the value
+                            _mm256_cmpeq_epi16($data, _mm256_set1_epi16($value)),
+                            _mm256_cmpeq_epi16($data, _mm256_set1_epi16($value))
+                        )
+                    )
+                )
+            // Extract the most significant bit of each byte and create a mask
+            ) & 0x55555555) | (
+                (_mm256_movemask_epi8(
+                    // Convert packed 8-bit results back to 16-bit
+                    _mm256_cvtepi8_epi16(
+                        // Cast the lower 128 bits of the 256-bit vector to 128-bit
+                        _mm256_castsi256_si128(
+                            // Pack the 16-bit comparison results into 8-bit results
+                            _mm256_packs_epi16(
+                                // Compare each 16-bit element in the data with the value
+                                _mm256_cmpeq_epi16($data, _mm256_set1_epi16($value)),
+                                _mm256_cmpeq_epi16($data, _mm256_set1_epi16($value))
+                            )
+                        )
+                    )
+                // Extract the most significant bit of each byte and create a mask, then shift right by 1 bit
+                ) >> 1) & 0x55555555
+            )
+        };
+    }
 
-    // Compare shifted chunk data
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x00A0 as i16))) as u32) >> 1; // Non-breaking Space (U+00A0)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x1680 as i16))) as u32) >> 1; // Ogham Space Mark (U+1680)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x180E as i16))) as u32) >> 1; // Mongolian Vowel Separator (U+180E)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x2000 as i16))) as u32) >> 1; // En Quad (U+2000)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x2001 as i16))) as u32) >> 1; // Em Quad (U+2001)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x2002 as i16))) as u32) >> 1; // En Space (U+2002)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x2003 as i16))) as u32) >> 1; // Em Space (U+2003)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x2004 as i16))) as u32) >> 1; // Three-per-em Space (U+2004)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x2005 as i16))) as u32) >> 1; // Four-per-em Space (U+2005)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x2006 as i16))) as u32) >> 1; // Six-per-em Space (U+2006)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x2007 as i16))) as u32) >> 1; // Figure Space (U+2007)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x2008 as i16))) as u32) >> 1; // Punctuation Space (U+2008)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x2009 as i16))) as u32) >> 1; // Thin Space (U+2009)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x200A as i16))) as u32) >> 1; // Hair Space (U+200A)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x2028 as i16))) as u32) >> 1; // Line Separator (U+2028)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x2029 as i16))) as u32) >> 1; // Paragraph Separator (U+2029)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x205F as i16))) as u32) >> 1; // Medium Mathematical Space (U+205F)
-    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x3000 as i16))) as u32) >> 1; // Ideographic Space (U+3000)
+    // Compare original chunk data against each specified Unicode whitespace character
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x00A0); // Non-breaking Space (U+00A0)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x1680); // Ogham Space Mark (U+1680)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x180E); // Mongolian Vowel Separator (U+180E)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x2000); // En Quad (U+2000)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x2001); // Em Quad (U+2001)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x2002); // En Space (U+2002)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x2003); // Em Space (U+2003)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x2004); // Three-per-em Space (U+2004)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x2005); // Four-per-em Space (U+2005)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x2006); // Six-per-em Space (U+2006)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x2007); // Figure Space (U+2007)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x2008); // Punctuation Space (U+2008)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x2009); // Thin Space (U+2009)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x200A); // Hair Space (U+200A)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x2028); // Line Separator (U+2028)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x2029); // Paragraph Separator (U+2029)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x205F); // Medium Mathematical Space (U+205F)
+    result_mask |= compare_and_mask_inline!(chunk_data, 0x3000); // Ideographic Space (U+3000)
 
+    // Compare shifted chunk data against each specified Unicode whitespace character
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x00A0) >> 1; // Non-breaking Space (U+00A0)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x1680) >> 1; // Ogham Space Mark (U+1680)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x180E) >> 1; // Mongolian Vowel Separator (U+180E)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x2000) >> 1; // En Quad (U+2000)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x2001) >> 1; // Em Quad (U+2001)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x2002) >> 1; // En Space (U+2002)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x2003) >> 1; // Em Space (U+2003)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x2004) >> 1; // Three-per-em Space (U+2004)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x2005) >> 1; // Four-per-em Space (U+2005)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x2006) >> 1; // Six-per-em Space (U+2006)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x2007) >> 1; // Figure Space (U+2007)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x2008) >> 1; // Punctuation Space (U+2008)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x2009) >> 1; // Thin Space (U+2009)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x200A) >> 1; // Hair Space (U+200A)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x2028) >> 1; // Line Separator (U+2028)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x2029) >> 1; // Paragraph Separator (U+2029)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x205F) >> 1; // Medium Mathematical Space (U+205F)
+    shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x3000) >> 1; // Ideographic Space (U+3000)
+
+    // Combine the results of original and shifted comparisons into the final result mask
     result_mask | shifted_result_mask
 }
+
 
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
