@@ -320,9 +320,10 @@ fn count_words_and_chars(
 
         // Check if the current position is the start of a 4-byte UTF-8 character
         if (is_four_byte_utf_mask & bit) != 0 {
-            if in_whitespace 
+            if in_whitespace ( 
                 // Start of a new word
-                { result.word_count += 1; }
+                result.word_count += 1; 
+            }
             in_whitespace = false;
             result.four_byte_count += 1;
             if j >= chunk_len - 4 {
@@ -336,9 +337,10 @@ fn count_words_and_chars(
 
         // Check if the current position is the start of a 3-byte UTF-8 character
         if (is_three_byte_utf_mask & bit) != 0 {
-            if in_whitespace
+            if in_whitespace {
                 // Start of a new word
-                { result.word_count += 1; }
+                result.word_count += 1; 
+            }
             in_whitespace = false;
             result.three_byte_count += 1;
             if j >= chunk_len - 3 {
@@ -369,9 +371,10 @@ fn count_words_and_chars(
             }
             
         } else {
-            if in_whitespace
+            if in_whitespace {
                 // Start of a new word
-                { result.word_count += 1; }
+                result.word_count += 1; 
+            }
             in_whitespace = false;
             
             // Check if the current position is the start of a 2-byte UTF-8 character
