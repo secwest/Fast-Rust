@@ -83,9 +83,6 @@ const UNICODE_WHITESPACE_PATTERNS: [u16; 18] = [
     0x3000  // Ideographic Space (U+3000)
 ];
 
-// UTF-16 and UTF-32 leading byte masks
-const UTF16_LEADING_BYTE_MASK: u16 = 0xD800; // Leading byte for UTF-16 surrogate pairs
-const UTF32_LEADING_BYTE_MASK: u32 = 0x0000D800; // Leading byte for UTF-32 surrogate pairs
 
 #[derive(Default, Clone)]
 struct ChunkResult {
@@ -228,9 +225,9 @@ unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8) -> ChunkResult {
     let shifted_chunk_data2 = _mm256_srli_si256(chunk_data2, 1);
 
     // Create SIMD patterns for leading bytes of UTF sequences
-    let two_byte_utf_mask = _mm256_set1_epi8(0xC0 as u8);  // 110xxxxx
-    let three_byte_utf_mask = _mm256_set1_epi8(0xE0 as u8); // 1110xxxx
-    let four_byte_utf_mask = _mm256_set1_epi8(0xF0 as u8);  // 11110xxx
+    let two_byte_utf_mask = _mm256_set1_epi8(-64 as i8);  // 110xxxxx
+    let three_byte_utf_mask = _mm256_set1_epi8(-32 as i8); // 1110xxxx
+    let four_byte_utf_mask = _mm256_set1_epi8(-16 as i8);  // 11110xxx
 
     // Perform UTF sequence comparisons for the first chunk
     let is_two_byte_utf1 = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data1, two_byte_utf_mask), two_byte_utf_mask);
@@ -277,9 +274,9 @@ unsafe fn count_patterns_avx512_chunk(chunk_ptr: *const u8) -> ChunkResult {
     let chunk_len = 64; // Define the chunk length
 	
     // Create SIMD patterns for leading bytes of UTF sequences
-    let two_byte_utf_mask = _mm512_set1_epi8(0xC0 as u8);  // 110xxxxx
-    let three_byte_utf_mask = _mm512_set1_epi8(0xE0 as u8); // 1110xxxx
-    let four_byte_utf_mask = _mm512_set1_epi8(0xF0 as u8);  // 11110xxx
+    let two_byte_utf_mask = _mm512_set1_epi8(-64 as i8);  // 110xxxxx
+    let three_byte_utf_mask = _mm512_set1_epi8(-32 as i8); // 1110xxxx
+    let four_byte_utf_mask = _mm512_set1_epi8(-16 as i8);  // 11110xxx
 
     // Perform UTF sequence comparisons
     let is_two_byte_utf = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, two_byte_utf_mask), two_byte_utf_mask);
@@ -409,10 +406,11 @@ fn count_words_and_chars(
 
 fn adjust_word_count(results: &mut Vec<ChunkResult>, bytes: &[u8]) {
     let mut mutable_results = results.clone(); // Create a mutable copy of the entire results vector
+
     for i in 1..mutable_results.len() {
-        let prev = &mutable_results[i - 1]; // Borrow the previous result immutably
-        let curr = &mut mutable_results[i]; // Borrow the current result mutably
-	    
+        let prev = mutable_results[i - 1].clone(); // Clone the previous result
+        let curr = &mut mutable_results[i]; // Get a mutable reference to the current result
+
         // Only check for unicode whitespace the case where the previous chunk ends in a UTF-8 sequence
         if prev.ending_in_utf8 {
             let prev_last_byte_index = i * 64 - 1;
