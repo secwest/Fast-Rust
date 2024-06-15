@@ -728,7 +728,7 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
     let padding_size = if std::is_x86_feature_detected!("avx512f") {
         64
     } else if std::is_x86_feature_detected!("avx2") {
-        32
+        64
     } else {
         0
     };
