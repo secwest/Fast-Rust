@@ -110,22 +110,82 @@ unsafe fn compare_unicode_whitespace_avx512(chunk_ptr: *const u8) -> u64 {
     let mut result_mask = 0u64;
     let mut shifted_result_mask = 0u64;
 
-    // Compare original and shifted chunk data in the same loop
-    for &pattern in UNICODE_WHITESPACE_PATTERNS.iter() {
-        let pattern_vec = _mm512_set1_epi16(pattern as i16);
+    // Compare each pattern against both original and shifted chunk data
+    
+    let pattern_vec = _mm512_set1_epi16(0x00A0 as i16); // Non-breaking Space (U+00A0)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
 
-        // Compare original chunk data
-        let cmp_mask = _mm512_cmpeq_epi16_mask(chunk_data, pattern_vec);
-        result_mask |= _mm512_movemask_epi16(cmp_mask) as u64;
-
-        // Compare shifted chunk data
-        let shifted_cmp_mask = _mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec);
-        shifted_result_mask |= (_mm512_movemask_epi16(shifted_cmp_mask) as u64) >> 1;
-    }
-
+    let pattern_vec = _mm512_set1_epi16(0x1680 as i16); // Ogham Space Mark (U+1680)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x180E as i16); // Mongolian Vowel Separator (U+180E)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x2000 as i16); // En Quad (U+2000)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+     shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x2001 as i16); // Em Quad (U+2001)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+     shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x2002 as i16); // En Space (U+2002)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x2003 as i16); // Em Space (U+2003)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x2004 as i16); // Three-per-em Space (U+2004)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x2005 as i16); // Four-per-em Space (U+2005)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x2006 as i16); // Six-per-em Space (U+2006)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x2007 as i16); // Figure Space (U+2007)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x2008 as i16); // Punctuation Space (U+2008)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x2009 as i16); // Thin Space (U+2009)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x200A as i16); // Hair Space (U+200A)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x2028 as i16); // Line Separator (U+2028)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x2029 as i16); // Paragraph Separator (U+2029)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x205F as i16); // Medium Mathematical Space (U+205F)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
+    let pattern_vec = _mm512_set1_epi16(0x3000 as i16); // Ideographic Space (U+3000)
+    result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, pattern_vec)) as u64;
+    shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, pattern_vec)) as u64) >> 1;
+    
     result_mask | shifted_result_mask
 }
-
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 unsafe fn compare_unicode_whitespace_avx2(chunk_ptr: *const u8) -> u32 {
@@ -134,21 +194,83 @@ unsafe fn compare_unicode_whitespace_avx2(chunk_ptr: *const u8) -> u32 {
     let mut result_mask = 0u32;
     let mut shifted_result_mask = 0u32;
 
-    // Compare original and shifted chunk data in the same loop
-    for &pattern in UNICODE_WHITESPACE_PATTERNS.iter() {
-        let pattern_vec = _mm256_set1_epi16(pattern as i16);
+    // Compare each pattern against both original and shifted chunk data
+    let pattern_vec = _mm256_set1_epi16(0x00A0 as i16); // Non-breaking Space (U+00A0)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
 
-        // Compare original chunk data
-        let cmp_mask = _mm256_cmpeq_epi16(chunk_data, pattern_vec);
-        result_mask |= _mm256_movemask_epi16(cmp_mask) as u32;
+    let pattern_vec = _mm256_set1_epi16(0x1680 as i16); // Ogham Space Mark (U+1680)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
 
-        // Compare shifted chunk data
-        let shifted_cmp_mask = _mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec);
-        shifted_result_mask |= (_mm256_movemask_epi16(shifted_cmp_mask) as u32) >> 1;
-    }
+    let pattern_vec = _mm256_set1_epi16(0x180E as i16); // Mongolian Vowel Separator (U+180E)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
+
+    let pattern_vec = _mm256_set1_epi16(0x2000 as i16); // En Quad (U+2000)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
+
+    let pattern_vec = _mm256_set1_epi16(0x2001 as i16); // Em Quad (U+2001)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
+
+    let pattern_vec = _mm256_set1_epi16(0x2002 as i16); // En Space (U+2002)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
+
+    let pattern_vec = _mm256_set1_epi16(0x2003 as i16); // Em Space (U+2003)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
+
+    let pattern_vec = _mm256_set1_epi16(0x2004 as i16); // Three-per-em Space (U+2004)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
+
+    let pattern_vec = _mm256_set1_epi16(0x2005 as i16); // Four-per-em Space (U+2005)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
+
+    let pattern_vec = _mm256_set1_epi16(0x2006 as i16); // Six-per-em Space (U+2006)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
+
+    let pattern_vec = _mm256_set1_epi16(0x2007 as i16); // Figure Space (U+2007)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
+
+    let pattern_vec = _mm256_set1_epi16(0x2008 as i16); // Punctuation Space (U+2008)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
+
+    let pattern_vec = _mm256_set1_epi16(0x2009 as i16); // Thin Space (U+2009)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
+
+    let pattern_vec = _mm256_set1_epi16(0x200A as i16); // Hair Space (U+200A)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
+
+    let pattern_vec = _mm256_set1_epi16(0x2028 as i16); // Line Separator (U+2028)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
+
+    let pattern_vec = _mm256_set1_epi16(0x2029 as i16); // Paragraph Separator (U+2029)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
+
+    let pattern_vec = _mm256_set1_epi16(0x205F as i16); // Medium Mathematical Space (U+205F)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
+
+    let pattern_vec = _mm256_set1_epi16(0x3000 as i16); // Ideographic Space (U+3000)
+    result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, pattern_vec)) as u32;
+    shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, pattern_vec)) as u32) >> 1;
 
     result_mask | shifted_result_mask
 }
+
+
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 unsafe fn unicode_whitespace_compare_avx(chunk_ptr: *const u8) -> u64 {
@@ -286,39 +408,6 @@ unsafe fn count_patterns_avx512_chunk(chunk_ptr: *const u8, chunk_len: usize) ->
 }
 
 
-
-
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-unsafe fn count_patterns_avx512_chunk(chunk: &[u8]) -> ChunkResult {
-    let chunk_len = chunk.len();
-    let chunk_data = _mm512_loadu_si512(chunk.as_ptr() as *const __m512i);
-
-    // Create SIMD patterns for leading bytes of UTF sequences
-    let two_byte_utf_mask = _mm512_set1_epi8(0xC0 as i8);  // 110xxxxx
-    let three_byte_utf_mask = _mm512_set1_epi8(0xE0 as i8); // 1110xxxx
-    let four_byte_utf_mask = _mm512_set1_epi8(0xF0 as i8);  // 11110xxx
-
-    // Perform UTF sequence comparisons
-    let is_two_byte_utf = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, two_byte_utf_mask), two_byte_utf_mask);
-    let is_three_byte_utf = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, three_byte_utf_mask), three_byte_utf_mask);
-    let is_four_byte_utf = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, four_byte_utf_mask), four_byte_utf_mask);
-
-    let is_two_byte_utf_mask = _mm512_movemask_epi8(is_two_byte_utf) as u64;
-    let is_three_byte_utf_mask = _mm512_movemask_epi8(is_three_byte_utf) as u64;
-    let is_four_byte_utf_mask = _mm512_movemask_epi8(is_four_byte_utf) as u64;
-
-    // Identify and mask out ASCII whitespace
-    let ascii_whitespace_mask = compare_ascii_whitespace_avx512(chunk);
-
-    // Identify and mask out Unicode whitespace
-    let unicode_whitespace_mask = compare_unicode_whitespace_avx512(chunk);
-
-    // Combine the masks
-    let whitespace_mask = ascii_whitespace_mask | unicode_whitespace_mask;
-
-    // Use the masks to count words and character types
-    count_words_and_chars(chunk_len, is_two_byte_utf_mask, is_three_byte_utf_mask, is_four_byte_utf_mask, ascii_whitespace_mask, whitespace_mask)
-}
 
 
 fn count_words_and_chars(
