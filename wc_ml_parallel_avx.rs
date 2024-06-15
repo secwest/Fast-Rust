@@ -219,7 +219,7 @@ unsafe fn compare_unicode_whitespace_avx2(chunk_data: __m256i, shifted_chunk_dat
 
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8, chunk_len: usize) -> ChunkResult {
+unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8) -> ChunkResult {
     // Process the first 32-byte chunk
     let chunk_data1 = _mm256_loadu_si256(chunk_ptr as *const __m256i);
     let shifted_chunk_data1 = _mm256_srli_si256(chunk_data1, 1);
@@ -270,7 +270,7 @@ unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8, chunk_len: usize) -> C
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-unsafe fn count_patterns_avx512_chunk(chunk_ptr: *const u8, chunk_len: usize) -> ChunkResult {
+unsafe fn count_patterns_avx512_chunk(chunk_ptr: *const u8) -> ChunkResult {
     let chunk_data = _mm512_loadu_si512(chunk_ptr as *const __m512i);
     let shifted_chunk_data = _mm512_srli_si512(chunk_data, 1);
 
