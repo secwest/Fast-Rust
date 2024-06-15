@@ -168,32 +168,16 @@ unsafe fn compare_ascii_whitespace_avx2(chunk_ptr: *const u8) -> u32 {
     let mut result_mask = 0u32;
 
     // Unroll comparisons for each pattern
-    let pattern1 = _mm256_set1_epi8(ASCII_WHITESPACE_PATTERNS[0] as i8);
-    let cmp1 = _mm256_cmpeq_epi8(chunk_data, pattern1);
-    result_mask |= _mm256_movemask_epi8(cmp1) as u32;
-
-    let pattern2 = _mm256_set1_epi8(ASCII_WHITESPACE_PATTERNS[1] as i8);
-    let cmp2 = _mm256_cmpeq_epi8(chunk_data, pattern2);
-    result_mask |= _mm256_movemask_epi8(cmp2) as u32;
-
-    let pattern3 = _mm256_set1_epi8(ASCII_WHITESPACE_PATTERNS[2] as i8);
-    let cmp3 = _mm256_cmpeq_epi8(chunk_data, pattern3);
-    result_mask |= _mm256_movemask_epi8(cmp3) as u32;
-
-    let pattern4 = _mm256_set1_epi8(ASCII_WHITESPACE_PATTERNS[3] as i8);
-    let cmp4 = _mm256_cmpeq_epi8(chunk_data, pattern4);
-    result_mask |= _mm256_movemask_epi8(cmp4) as u32;
-
-    let pattern5 = _mm256_set1_epi8(ASCII_WHITESPACE_PATTERNS[4] as i8);
-    let cmp5 = _mm256_cmpeq_epi8(chunk_data, pattern5);
-    result_mask |= _mm256_movemask_epi8(cmp5) as u32;
-
-    let pattern6 = _mm256_set1_epi8(ASCII_WHITESPACE_PATTERNS[5] as i8);
-    let cmp6 = _mm256_cmpeq_epi8(chunk_data, pattern6);
-    result_mask |= _mm256_movemask_epi8(cmp6) as u32;
+    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x09))) as u32; // Tab (U+0009)
+    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0A))) as u32; // Line Feed (U+000A)
+    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0B))) as u32; // Vertical Tab (U+000B)
+    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0C))) as u32; // Form Feed (U+000C)
+    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0D))) as u32; // Carriage Return (U+000D)
+    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x20))) as u32; // Space (U+0020)
 
     result_mask
 }
+
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 unsafe fn compare_ascii_whitespace_avx512(chunk_ptr: *const u8) -> u64 {
@@ -201,29 +185,12 @@ unsafe fn compare_ascii_whitespace_avx512(chunk_ptr: *const u8) -> u64 {
     let mut result_mask = 0u64;
 
     // Unroll comparisons for each pattern
-    let pattern1 = _mm512_set1_epi8(ASCII_WHITESPACE_PATTERNS[0] as i8);
-    let cmp1 = _mm512_cmpeq_epi8_mask(chunk_data, pattern1);
-    result_mask |= _mm512_movemask_epi8(cmp1) as u64;
-
-    let pattern2 = _mm512_set1_epi8(ASCII_WHITESPACE_PATTERNS[1] as i8);
-    let cmp2 = _mm512_cmpeq_epi8_mask(chunk_data, pattern2);
-    result_mask |= _mm512_movemask_epi8(cmp2) as u64;
-
-    let pattern3 = _mm512_set1_epi8(ASCII_WHITESPACE_PATTERNS[2] as i8);
-    let cmp3 = _mm512_cmpeq_epi8_mask(chunk_data, pattern3);
-    result_mask |= _mm512_movemask_epi8(cmp3) as u64;
-
-    let pattern4 = _mm512_set1_epi8(ASCII_WHITESPACE_PATTERNS[3] as i8);
-    let cmp4 = _mm512_cmpeq_epi8_mask(chunk_data, pattern4);
-    result_mask |= _mm512_movemask_epi8(cmp4) as u64;
-
-    let pattern5 = _mm512_set1_epi8(ASCII_WHITESPACE_PATTERNS[4] as i8);
-    let cmp5 = _mm512_cmpeq_epi8_mask(chunk_data, pattern5);
-    result_mask |= _mm512_movemask_epi8(cmp5) as u64;
-
-    let pattern6 = _mm512_set1_epi8(ASCII_WHITESPACE_PATTERNS[5] as i8);
-    let cmp6 = _mm512_cmpeq_epi8_mask(chunk_data, pattern6);
-    result_mask |= _mm512_movemask_epi8(cmp6) as u64;
+    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x09))) as u64; // Tab (U+0009)
+    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x0A))) as u64; // Line Feed (U+000A)
+    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x0B))) as u64; // Vertical Tab (U+000B)
+    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x0C))) as u64; // Form Feed (U+000C)
+    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x0D))) as u64; // Carriage Return (U+000D)
+    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x20))) as u64; // Space (U+0020)
 
     result_mask
 }
