@@ -395,10 +395,10 @@ unsafe fn count_patterns_avx512_chunk(chunk_ptr: *const u8, chunk_len: usize) ->
     let is_four_byte_utf_mask = _mm512_movemask_epi8(is_four_byte_utf) as u64;
 
     // Identify and mask out ASCII whitespace
-    let ascii_whitespace_mask = compare_ascii_whitespace_avx512(chunk_ptr);
+    let ascii_whitespace_mask = ascii_whitespace_compare_avx(chunk_ptr);
 
     // Identify and mask out Unicode whitespace
-    let unicode_whitespace_mask = compare_unicode_whitespace_avx512(chunk_ptr);
+    let unicode_whitespace_mask = unicode_whitespace_compare_avx(chunk_ptr);
 
     // Combine the masks
     let whitespace_mask = ascii_whitespace_mask | unicode_whitespace_mask;
