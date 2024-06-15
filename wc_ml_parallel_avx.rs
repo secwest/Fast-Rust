@@ -635,7 +635,7 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
         0
     };
 
-    // Process each chunk in parallel using Rayon
+    / Process each chunk in parallel using Rayon
     results.par_iter_mut().enumerate().for_each(|(i, result)| {
         let start = i * chunk_size;
         let end = usize::min(start + chunk_size, bytes.len());
@@ -649,13 +649,15 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
             bytes[start..end].to_vec()
         };
 
-        let counts = if std::is_x86_feature_detected!("avx512f") {
-            unsafe { count_patterns_avx512_chunk(chunk.as.ptr()) }
-        } else if std::is_x86_feature_detected!("avx2") {
-            unsafe { count_patterns_avx2_chunk(chunk.as.ptr()) }
-        } else {
-            unsafe { count_patterns_fallback_chunk(chunk.as.ptr()) }
-        };
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+        let counts = unsafe { count_patterns_avx512_chunk(chunk.as_ptr()) };
+
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")))]
+        let counts = unsafe { count_patterns_avx2_chunk(chunk.as_ptr()) };
+
+        #[cfg(not(any(target_feature = "avx2", target_feature = "avx512f")))]
+        let counts = count_patterns_fallback_chunk(&chunk);
+
         *result = counts;
     });
 
