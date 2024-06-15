@@ -228,9 +228,9 @@ unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8) -> ChunkResult {
     let shifted_chunk_data2 = _mm256_srli_si256(chunk_data2, 1);
 
     // Create SIMD patterns for leading bytes of UTF sequences
-    let two_byte_utf_mask = _mm256_set1_epi8(0xC0 as i8);  // 110xxxxx
-    let three_byte_utf_mask = _mm256_set1_epi8(0xE0 as i8); // 1110xxxx
-    let four_byte_utf_mask = _mm256_set1_epi8(0xF0 as i8);  // 11110xxx
+    let two_byte_utf_mask = _mm256_set1_epi8(0xC0 as u8);  // 110xxxxx
+    let three_byte_utf_mask = _mm256_set1_epi8(0xE0 as u8); // 1110xxxx
+    let four_byte_utf_mask = _mm256_set1_epi8(0xF0 as u8);  // 11110xxx
 
     // Perform UTF sequence comparisons for the first chunk
     let is_two_byte_utf1 = _mm256_cmpeq_epi8(_mm256_and_si256(chunk_data1, two_byte_utf_mask), two_byte_utf_mask);
@@ -277,9 +277,9 @@ unsafe fn count_patterns_avx512_chunk(chunk_ptr: *const u8) -> ChunkResult {
     let chunk_len = 64; // Define the chunk length
 	
     // Create SIMD patterns for leading bytes of UTF sequences
-    let two_byte_utf_mask = _mm512_set1_epi8(0xC0 as i8);  // 110xxxxx
-    let three_byte_utf_mask = _mm512_set1_epi8(0xE0 as i8); // 1110xxxx
-    let four_byte_utf_mask = _mm512_set1_epi8(0xF0 as i8);  // 11110xxx
+    let two_byte_utf_mask = _mm512_set1_epi8(0xC0 as u8);  // 110xxxxx
+    let three_byte_utf_mask = _mm512_set1_epi8(0xE0 as u8); // 1110xxxx
+    let four_byte_utf_mask = _mm512_set1_epi8(0xF0 as u8);  // 11110xxx
 
     // Perform UTF sequence comparisons
     let is_two_byte_utf = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, two_byte_utf_mask), two_byte_utf_mask);
