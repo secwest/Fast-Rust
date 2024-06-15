@@ -219,6 +219,8 @@ unsafe fn compare_unicode_whitespace_avx2(chunk_data: __m256i, shifted_chunk_dat
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8) -> ChunkResult {
+    let chunk_len = 64; // Define the chunk length
+	
     // Process the first 32-byte chunk
     let chunk_data1 = _mm256_loadu_si256(chunk_ptr as *const __m256i);
     let shifted_chunk_data1 = _mm256_srli_si256(chunk_data1, 1);
@@ -272,7 +274,8 @@ unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8) -> ChunkResult {
 unsafe fn count_patterns_avx512_chunk(chunk_ptr: *const u8) -> ChunkResult {
     let chunk_data = _mm512_loadu_si512(chunk_ptr as *const __m512i);
     let shifted_chunk_data = _mm512_srli_si512(chunk_data, 1);
-
+    let chunk_len = 64; // Define the chunk length
+	
     // Create SIMD patterns for leading bytes of UTF sequences
     let two_byte_utf_mask = _mm512_set1_epi8(0xC0 as i8);  // 110xxxxx
     let three_byte_utf_mask = _mm512_set1_epi8(0xE0 as i8); // 1110xxxx
@@ -407,8 +410,9 @@ fn count_words_and_chars(
 fn adjust_word_count(results: &mut Vec<ChunkResult>, bytes: &[u8]) {
     for i in 1..results.len() {
         let prev = &results[i - 1];
-        let curr = &mut results[i];
-
+        let (left, right) = results.split_at_mut(i);
+        let curr = &mut right[0];
+	    
         // Only check for unicode whitespace the case where the previous chunk ends in a UTF-8 sequence
         if prev.ending_in_utf8 {
             let prev_last_byte_index = i * 64 - 1;
@@ -646,11 +650,11 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
         };
 
         let counts = if std::is_x86_feature_detected!("avx512f") {
-            unsafe { count_patterns_avx512_chunk(&chunk) }
+            unsafe { count_patterns_avx512_chunk(chunk.as.ptr()) }
         } else if std::is_x86_feature_detected!("avx2") {
-            unsafe { count_patterns_avx2_chunk(&chunk) }
+            unsafe { count_patterns_avx2_chunk(chunk.as.ptr()) }
         } else {
-            unsafe { count_patterns_fallback_chunk(&chunk) }
+            unsafe { count_patterns_fallback_chunk(chunk.as.ptr()) }
         };
         *result = counts;
     });
