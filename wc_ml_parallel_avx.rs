@@ -184,49 +184,24 @@ unsafe fn compare_unicode_whitespace_avx512(chunk_data: __m512i, shifted_chunk_d
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 unsafe fn compare_unicode_whitespace_avx2(chunk_data: __m256i, shifted_chunk_data: __m256i) -> u32 {
-    // Initialize result masks for original and shifted data
-    let mut result_mask = 0u32;
-    let mut shifted_result_mask = 0u32;
-
-    // Macro to compare and create bitmask in a single step without temporary variables
+    // Macro to compare 16-bit elements and create a mask indicating matches
     macro_rules! compare_and_mask_inline {
         ($data:expr, $value:expr) => {
-            // Perform the comparison of 16-bit elements with the given value
             (_mm256_movemask_epi8(
-                // Convert packed 8-bit results back to 16-bit
-                _mm256_cvtepi8_epi16(
-                    // Cast the lower 128 bits of the 256-bit vector to 128-bit
-                    _mm256_castsi256_si128(
-                        // Pack the 16-bit comparison results into 8-bit results
-                        _mm256_packs_epi16(
-                            // Compare each 16-bit element in the data with the value
-                            _mm256_cmpeq_epi16($data, _mm256_set1_epi16($value)),
-                            _mm256_cmpeq_epi16($data, _mm256_set1_epi16($value))
-                        )
-                    )
+                // Pack the 16-bit comparison results into 8-bit elements
+                _mm256_packs_epi16(
+                    // Compare each 16-bit element in the data with the value
+                    _mm256_cmpeq_epi16($data, _mm256_set1_epi16($value)),
+                    _mm256_setzero_si256()
                 )
-            // Extract the most significant bit of each byte and create a mask
-            ) & 0x55555555) | (
-                (_mm256_movemask_epi8(
-                    // Convert packed 8-bit results back to 16-bit
-                    _mm256_cvtepi8_epi16(
-                        // Cast the lower 128 bits of the 256-bit vector to 128-bit
-                        _mm256_castsi256_si128(
-                            // Pack the 16-bit comparison results into 8-bit results
-                            _mm256_packs_epi16(
-                                // Compare each 16-bit element in the data with the value
-                                _mm256_cmpeq_epi16($data, _mm256_set1_epi16($value)),
-                                _mm256_cmpeq_epi16($data, _mm256_set1_epi16($value))
-                            )
-                        )
-                    )
-                // Extract the most significant bit of each byte and create a mask, then shift right by 1 bit
-                ) >> 1) & 0x55555555
-            )
+            ) & 0x55555555) as u32 // Extract the most significant bit of each byte and create a mask
         };
     }
 
-    // Compare original chunk data against each specified Unicode whitespace character
+    let mut result_mask = 0u32; // Initialize the result mask for chunk_data
+    let mut shifted_result_mask = 0u32; // Initialize the result mask for shifted_chunk_data
+
+    // Compare chunk_data with various Unicode whitespace characters and update result_mask
     result_mask |= compare_and_mask_inline!(chunk_data, 0x00A0); // Non-breaking Space (U+00A0)
     result_mask |= compare_and_mask_inline!(chunk_data, 0x1680); // Ogham Space Mark (U+1680)
     result_mask |= compare_and_mask_inline!(chunk_data, 0x180E); // Mongolian Vowel Separator (U+180E)
@@ -246,7 +221,7 @@ unsafe fn compare_unicode_whitespace_avx2(chunk_data: __m256i, shifted_chunk_dat
     result_mask |= compare_and_mask_inline!(chunk_data, 0x205F); // Medium Mathematical Space (U+205F)
     result_mask |= compare_and_mask_inline!(chunk_data, 0x3000); // Ideographic Space (U+3000)
 
-    // Compare shifted chunk data against each specified Unicode whitespace character
+    // Compare shifted_chunk_data with various Unicode whitespace characters and update shifted_result_mask
     shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x00A0) >> 1; // Non-breaking Space (U+00A0)
     shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x1680) >> 1; // Ogham Space Mark (U+1680)
     shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x180E) >> 1; // Mongolian Vowel Separator (U+180E)
@@ -266,7 +241,7 @@ unsafe fn compare_unicode_whitespace_avx2(chunk_data: __m256i, shifted_chunk_dat
     shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x205F) >> 1; // Medium Mathematical Space (U+205F)
     shifted_result_mask |= compare_and_mask_inline!(shifted_chunk_data, 0x3000) >> 1; // Ideographic Space (U+3000)
 
-    // Combine the results of original and shifted comparisons into the final result mask
+    // Combine the result masks for chunk_data and shifted_chunk_data
     result_mask | shifted_result_mask
 }
 
