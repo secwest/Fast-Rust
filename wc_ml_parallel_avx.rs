@@ -38,7 +38,6 @@ use rayon::prelude::*;
 use std::env;
 use std::fs::File;
 use std::io;
-use std::sync::LazyLock;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 use core::arch::x86_64::{
@@ -320,7 +319,7 @@ fn count_words_and_chars(
 
         // Check if the current position is the start of a 4-byte UTF-8 character
         if (is_four_byte_utf_mask & bit) != 0 {
-            if in_whitespace ( 
+            if in_whitespace { 
                 // Start of a new word
                 result.word_count += 1; 
             }
@@ -541,8 +540,9 @@ unsafe fn count_patterns_fallback_chunk(chunk: &[u8]) -> ChunkResult {
 
         // Check for 4-byte UTF-32 characters first
         if byte & 0xF8 == 0xF0 {
-            if in_whitespace 
+            if in_whitespace {
                 result.word_count += 1;
+	    }
             in_whitespace = false;
             result.four_byte_count += 1;
             if j >= chunk.len() - 4 {
@@ -555,8 +555,9 @@ unsafe fn count_patterns_fallback_chunk(chunk: &[u8]) -> ChunkResult {
 
         // Check for 3-byte UTF-16 characters
         if byte & 0xF0 == 0xE0 {
-            if in_whitespace
+            if in_whitespace {
                 result.word_count += 1;
+	    }
             in_whitespace = false;
             result.three_byte_count += 1;
             if j >= chunk.len() - 3 {
@@ -581,8 +582,9 @@ unsafe fn count_patterns_fallback_chunk(chunk: &[u8]) -> ChunkResult {
             j += 2;
             continue;
         } else {
-            if in_whitespace
+            if in_whitespace {
                 result.word_count += 1;
+	    }
             in_whitespace = false;
             
             // Check for ASCII characters
