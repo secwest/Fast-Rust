@@ -88,7 +88,7 @@ const UNICODE_WHITESPACE_PATTERNS: [u16; 18] = [
 const UTF16_LEADING_BYTE_MASK: u16 = 0xD800; // Leading byte for UTF-16 surrogate pairs
 const UTF32_LEADING_BYTE_MASK: u32 = 0x0000D800; // Leading byte for UTF-32 surrogate pairs
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct ChunkResult {
     ascii_count: usize,
     two_byte_count: usize,
