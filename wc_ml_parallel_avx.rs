@@ -537,6 +537,7 @@ fn adjust_word_count(results: &mut Vec<ChunkResult>, bytes: &[u8]) {
 }
 
 
+#[cfg(not(any(target_feature = "avx2", target_feature = "avx512f")))]
 unsafe fn count_patterns_fallback_chunk(chunk: &[u8]) -> ChunkResult {
     let mut result = ChunkResult::default();
     let mut in_whitespace = true;
