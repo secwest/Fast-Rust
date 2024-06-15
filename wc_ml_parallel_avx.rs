@@ -408,11 +408,11 @@ fn count_words_and_chars(
 
 
 fn adjust_word_count(results: &mut Vec<ChunkResult>, bytes: &[u8]) {
-    for i in 1..results.len() {
-        let prev = &results[i - 1];
-        let (left, right) = results.split_at_mut(i);
-        let curr = &mut right[0];
-	    
+    let mut mutable_results = results.clone(); // Create a mutable copy of the entire results vector
+    for i in 1..mutable_results.len() {
+        let prev = &mutable_results[i - 1];
+        let curr = &mut mutable_results[i];
+   
         // Only check for unicode whitespace the case where the previous chunk ends in a UTF-8 sequence
         if prev.ending_in_utf8 {
             let prev_last_byte_index = i * 64 - 1;
@@ -531,6 +531,11 @@ fn adjust_word_count(results: &mut Vec<ChunkResult>, bytes: &[u8]) {
             }
         }
     }
+
+
+    // Copy the adjusted results back to the original results vector
+    *results = mutable_results;
+
 }
 
 
