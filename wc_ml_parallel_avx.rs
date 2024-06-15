@@ -103,12 +103,43 @@ struct ChunkResult {
     ending_in_utf8: bool,
 }
 
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+unsafe fn compare_ascii_whitespace_avx512(chunk_data: __m512i) -> u64 {
+    let mut result_mask = 0u64;
+
+    // Unroll comparisons for each pattern
+    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x09))) as u64; // Tab (U+0009)
+    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x0A))) as u64; // Line Feed (U+000A)
+    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x0B))) as u64; // Vertical Tab (U+000B)
+    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x0C))) as u64; // Form Feed (U+000C)
+    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x0D))) as u64; // Carriage Return (U+000D)
+    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x20))) as u64; // Space (U+0020)
+
+    result_mask
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+unsafe fn compare_ascii_whitespace_avx2(chunk_data: __m256i) -> u32 {
+    let mut result_mask = 0u32;
+
+    // Unroll comparisons for each pattern
+    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x09))) as u32; // Tab (U+0009)
+    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0A))) as u32; // Line Feed (U+000A)
+    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0B))) as u32; // Vertical Tab (U+000B)
+    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0C))) as u32; // Form Feed (U+000C)
+    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0D))) as u32; // Carriage Return (U+000D)
+    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x20))) as u32; // Space (U+0020)
+
+    result_mask
+}
+
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 unsafe fn compare_unicode_whitespace_avx512(chunk_data: __m512i, shifted_chunk_data: __m512i) -> u64 {
     let mut result_mask = 0u64;
     let mut shifted_result_mask = 0u64;
 
+    // Compare original and shifted chunk data in the same loop
     result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, _mm512_set1_epi16(0x00A0 as i16))) as u64; // Non-breaking Space (U+00A0)
     result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, _mm512_set1_epi16(0x1680 as i16))) as u64; // Ogham Space Mark (U+1680)
     result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, _mm512_set1_epi16(0x180E as i16))) as u64; // Mongolian Vowel Separator (U+180E)
@@ -128,6 +159,7 @@ unsafe fn compare_unicode_whitespace_avx512(chunk_data: __m512i, shifted_chunk_d
     result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, _mm512_set1_epi16(0x205F as i16))) as u64; // Medium Mathematical Space (U+205F)
     result_mask |= _mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(chunk_data, _mm512_set1_epi16(0x3000 as i16))) as u64; // Ideographic Space (U+3000)
 
+    // Compare shifted chunk data
     shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, _mm512_set1_epi16(0x00A0 as i16))) as u64) >> 1; // Non-breaking Space (U+00A0)
     shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, _mm512_set1_epi16(0x1680 as i16))) as u64) >> 1; // Ogham Space Mark (U+1680)
     shifted_result_mask |= (_mm512_movemask_epi16(_mm512_cmpeq_epi16_mask(shifted_chunk_data, _mm512_set1_epi16(0x180E as i16))) as u64) >> 1; // Mongolian Vowel Separator (U+180E)
@@ -150,12 +182,12 @@ unsafe fn compare_unicode_whitespace_avx512(chunk_data: __m512i, shifted_chunk_d
     result_mask | shifted_result_mask
 }
 
-
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 unsafe fn compare_unicode_whitespace_avx2(chunk_data: __m256i, shifted_chunk_data: __m256i) -> u32 {
     let mut result_mask = 0u32;
     let mut shifted_result_mask = 0u32;
 
+    // Compare original and shifted chunk data in the same loop
     result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x00A0 as i16))) as u32; // Non-breaking Space (U+00A0)
     result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x1680 as i16))) as u32; // Ogham Space Mark (U+1680)
     result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x180E as i16))) as u32; // Mongolian Vowel Separator (U+180E)
@@ -175,6 +207,7 @@ unsafe fn compare_unicode_whitespace_avx2(chunk_data: __m256i, shifted_chunk_dat
     result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x205F as i16))) as u32; // Medium Mathematical Space (U+205F)
     result_mask |= _mm256_movemask_epi16(_mm256_cmpeq_epi16(chunk_data, _mm256_set1_epi16(0x3000 as i16))) as u32; // Ideographic Space (U+3000)
 
+    // Compare shifted chunk data
     shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x00A0 as i16))) as u32) >> 1; // Non-breaking Space (U+00A0)
     shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x1680 as i16))) as u32) >> 1; // Ogham Space Mark (U+1680)
     shifted_result_mask |= (_mm256_movemask_epi16(_mm256_cmpeq_epi16(shifted_chunk_data, _mm256_set1_epi16(0x180E as i16))) as u32) >> 1; // Mongolian Vowel Separator (U+180E)
@@ -197,78 +230,14 @@ unsafe fn compare_unicode_whitespace_avx2(chunk_data: __m256i, shifted_chunk_dat
     result_mask | shifted_result_mask
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-unsafe fn unicode_whitespace_compare_avx(chunk_ptr: *const u8) -> u64 {
-    let chunk_data1 = _mm256_loadu_si256(chunk_ptr as *const __m256i);
-    let chunk_data2 = _mm256_loadu_si256(chunk_ptr.add(32) as *const __m256i);
-    let shifted_chunk_data1 = _mm256_srli_si256(chunk_data1, 1);
-    let shifted_chunk_data2 = _mm256_srli_si256(chunk_data2, 1);
-
-    let mask1 = compare_unicode_whitespace_avx2(chunk_data1, shifted_chunk_data1);
-    let mask2 = compare_unicode_whitespace_avx2(chunk_data2, shifted_chunk_data2);
-
-    (mask2 as u64) << 32 | mask1 as u64
-}
-
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-unsafe fn unicode_whitespace_compare_avx(chunk_ptr: *const u8) -> u64 {
-    let chunk_data = _mm512_loadu_si512(chunk_ptr as *const __m512i);
-    let shifted_chunk_data = _mm512_srli_si512(chunk_data, 1);
-    compare_unicode_whitespace_avx512(chunk_data, shifted_chunk_data)
-}
-
-
-
-
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-unsafe fn compare_ascii_whitespace_avx2(chunk_ptr: *const u8) -> u32 {
-    let chunk_data = _mm256_loadu_si256(chunk_ptr as *const __m256i);
-    let mut result_mask = 0u32;
-
-    // Unroll comparisons for each pattern
-    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x09))) as u32; // Tab (U+0009)
-    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0A))) as u32; // Line Feed (U+000A)
-    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0B))) as u32; // Vertical Tab (U+000B)
-    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0C))) as u32; // Form Feed (U+000C)
-    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0D))) as u32; // Carriage Return (U+000D)
-    result_mask |= _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x20))) as u32; // Space (U+0020)
-
-    result_mask
-}
-
-
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-unsafe fn compare_ascii_whitespace_avx512(chunk_ptr: *const u8) -> u64 {
-    let chunk_data = _mm512_loadu_si512(chunk_ptr as *const __m512i);
-    let mut result_mask = 0u64;
-
-    // Unroll comparisons for each pattern
-    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x09))) as u64; // Tab (U+0009)
-    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x0A))) as u64; // Line Feed (U+000A)
-    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x0B))) as u64; // Vertical Tab (U+000B)
-    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x0C))) as u64; // Form Feed (U+000C)
-    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x0D))) as u64; // Carriage Return (U+000D)
-    result_mask |= _mm512_movemask_epi8(_mm512_cmpeq_epi8_mask(chunk_data, _mm512_set1_epi8(0x20))) as u64; // Space (U+0020)
-
-    result_mask
-}
-
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-unsafe fn ascii_whitespace_compare_avx(chunk_ptr: *const u8) -> u64 {
-    if std::is_x86_feature_detected!("avx512f") {
-        compare_ascii_whitespace_avx512(chunk_ptr)
-    } else {
-        let mask1 = compare_ascii_whitespace_avx2(chunk_ptr);
-        let mask2 = compare_ascii_whitespace_avx2(chunk_ptr.add(32));
-        (mask2 as u64) << 32 | mask1 as u64
-    }
-}
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8, chunk_len: usize) -> ChunkResult {
     // Process the first 32-byte chunk
     let chunk_data1 = _mm256_loadu_si256(chunk_ptr as *const __m256i);
+    let shifted_chunk_data1 = _mm256_srli_si256(chunk_data1, 1);
     let chunk_data2 = _mm256_loadu_si256(chunk_ptr.add(32) as *const __m256i);
+    let shifted_chunk_data2 = _mm256_srli_si256(chunk_data2, 1);
 
     // Create SIMD patterns for leading bytes of UTF sequences
     let two_byte_utf_mask = _mm256_set1_epi8(0xC0 as i8);  // 110xxxxx
@@ -299,10 +268,12 @@ unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8, chunk_len: usize) -> C
     let is_four_byte_utf_mask = (is_four_byte_utf_mask2 as u64) << 32 | is_four_byte_utf_mask1 as u64;
 
     // Identify and mask out ASCII whitespace
-    let ascii_whitespace_mask = ascii_whitespace_compare_avx(chunk_ptr);
+    let ascii_whitespace_mask = compare_ascii_whitespace_avx2(chunk_data1) as u64 | (compare_ascii_whitespace_avx2(chunk_data2) as u64) << 32;
 
     // Identify and mask out Unicode whitespace
-    let unicode_whitespace_mask = unicode_whitespace_compare_avx(chunk_ptr);
+    let unicode_whitespace_mask1 = compare_unicode_whitespace_avx2(chunk_data1, shifted_chunk_data1);
+    let unicode_whitespace_mask2 = compare_unicode_whitespace_avx2(chunk_data2, shifted_chunk_data2);
+    let unicode_whitespace_mask = (unicode_whitespace_mask2 as u64) << 32 | unicode_whitespace_mask1 as u64;
 
     // Combine the masks
     let whitespace_mask = ascii_whitespace_mask | unicode_whitespace_mask;
@@ -311,10 +282,10 @@ unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8, chunk_len: usize) -> C
     count_words_and_chars(chunk_len, is_two_byte_utf_mask, is_three_byte_utf_mask, is_four_byte_utf_mask, ascii_whitespace_mask, whitespace_mask)
 }
 
-
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 unsafe fn count_patterns_avx512_chunk(chunk_ptr: *const u8, chunk_len: usize) -> ChunkResult {
     let chunk_data = _mm512_loadu_si512(chunk_ptr as *const __m512i);
+    let shifted_chunk_data = _mm512_srli_si512(chunk_data, 1);
 
     // Create SIMD patterns for leading bytes of UTF sequences
     let two_byte_utf_mask = _mm512_set1_epi8(0xC0 as i8);  // 110xxxxx
@@ -331,10 +302,10 @@ unsafe fn count_patterns_avx512_chunk(chunk_ptr: *const u8, chunk_len: usize) ->
     let is_four_byte_utf_mask = _mm512_movemask_epi8(is_four_byte_utf) as u64;
 
     // Identify and mask out ASCII whitespace
-    let ascii_whitespace_mask = ascii_whitespace_compare_avx(chunk_ptr);
+    let ascii_whitespace_mask = compare_ascii_whitespace_avx512(chunk_data);
 
     // Identify and mask out Unicode whitespace
-    let unicode_whitespace_mask = unicode_whitespace_compare_avx(chunk_ptr);
+    let unicode_whitespace_mask = compare_unicode_whitespace_avx512(chunk_data, shifted_chunk_data);
 
     // Combine the masks
     let whitespace_mask = ascii_whitespace_mask | unicode_whitespace_mask;
@@ -342,7 +313,6 @@ unsafe fn count_patterns_avx512_chunk(chunk_ptr: *const u8, chunk_len: usize) ->
     // Use the masks to count words and character types
     count_words_and_chars(chunk_len, is_two_byte_utf_mask, is_three_byte_utf_mask, is_four_byte_utf_mask, ascii_whitespace_mask, whitespace_mask)
 }
-
 
 
 
