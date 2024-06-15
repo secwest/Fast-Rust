@@ -408,7 +408,7 @@ fn count_words_and_chars(
 
 
 fn adjust_word_count(results: &mut Vec<ChunkResult>, bytes: &[u8]) {
-    let mut mutable_results = results.clone(); // Create a mutable copy of the entire results vector
+    let mutable_results = results.clone(); // Create a mutable copy of the entire results vector
     for i in 1..mutable_results.len() {
         let prev = &mutable_results[i - 1];
         let curr = &mut mutable_results[i];
