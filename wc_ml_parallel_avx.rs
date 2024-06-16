@@ -495,6 +495,7 @@ fn count_words_and_chars(
         result.ending_in_word = true;
     }
 
+//    println!("SUMASCII: {}",result.ascii_count);
     result
 }
 
@@ -583,93 +584,50 @@ fn count_patterns_fallback_chunk(chunk: &[u8]) -> ChunkResult {
 }
 
 
-fn adjust_word_count(results: &mut Vec<ChunkResult>, bytes: &[u8]) -> ChunkResult {
-    let mut final_results: Vec<ChunkResult> = vec![];
-    let mut total_result = ChunkResult::default();
-    let mut total_chunk_length = 0;
-    let chunk_start = results[0].block_start;
+fn adjust_word_count(results: &[ChunkResult], bytes: &[u8]) -> ChunkResult {
 
-    let mut mutable_results = results.clone(); // Create a mutable copy of the entire results vector
+    if results.len() < 2 {
+        return results[0].clone();
+    }
 
-    for i in 1..mutable_results.len() {
-        let prev = mutable_results[i - 1].clone(); // Clone the previous result
-        let curr = &mut mutable_results[i]; // Get a mutable reference to the current result
+    let mut total_result = ChunkResult {
+        block_start: results[0].block_start,
+        ..ChunkResult::default()
+    };
+ 
+    total_result.ascii_count = 0;
 
-            let prev_last_byte_index = prev.block_start + prev.block_length - 1;
-            if prev.ending_in_utf8 && prev_last_byte_index < bytes.len() {
-                let prev_last_byte = unsafe { *bytes.get_unchecked(prev_last_byte_index) };
+//     println!("Result Len: {} Results: {:?}",results.len(),results);
+    for i in 0..(results.len() - 1) {
+        let curr = &results[i];
+        let next = &results[i + 1];
 
-                // Check for straddling UTF-8 whitespace
-                if prev_last_byte == 0x16 || prev_last_byte == 0x18 || prev_last_byte == 0x20 {
-                    let first_byte_index = curr.block_start;
-                    if first_byte_index < bytes.len() {
-                        let first_byte = unsafe { *bytes.get_unchecked(first_byte_index) };
+//        println!("Processing block {} to {}: current result = {:?}", i, i + 1, curr);
+//        println!("Current ascii: {} Next ascii: {}", curr.ascii_count, next.ascii_count);
+//        let original_total_result = total_result.clone();
 
-                        // Check if the combination of last byte and first byte forms 0x2009 (Thin Space) or 0x200A (Hair Space)
-                        if (prev_last_byte == 0x20 && first_byte == 0x09) || (prev_last_byte == 0x20 && first_byte == 0x0A) {
-                            // If so, adjust the ASCII whitespace count down
-                            curr.ascii_whitespace_count -= 1;
-                            curr.unicode_whitespace_count += 1;
-                        } else {
-                            // Combine the last byte of the previous chunk with the first byte of the current chunk
-                            let combined_char = ((prev_last_byte as u16) << 8) | (first_byte as u16);
+        // Check if the current block ends in a UTF-8, UTF-16, or UTF-32 sequence and adjust the total result accordingly
+        if curr.ending_in_utf8 {
+            let curr_last_byte_index = curr.block_start + curr.block_length - 1;
+            let curr_last_byte = bytes[curr_last_byte_index];
 
-                            // Check if the combined character is a Unicode whitespace character
-                            if UNICODE_WHITESPACE_PATTERNS.contains(&combined_char) {
-                                curr.unicode_whitespace_count += 1;
-                                let next_byte_index = first_byte_index + 1;
-                                if next_byte_index < bytes.len() {
-                                    let next_byte = unsafe { *bytes.get_unchecked(next_byte_index) };
-                                    // Check if the next byte is either ASCII whitespace or Unicode whitespace
-                                    if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) ||
-                                        UNICODE_WHITESPACE_PATTERNS.contains(&(next_byte as u16)) {
-                                        // If so, adjust the word count down by one
-                                        curr.word_count -= 1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Handle straddling UTF-8 non-whitespace sequences
-                let first_byte_index = curr.block_start;
-                if first_byte_index < bytes.len() {
-                    let first_byte = unsafe { *bytes.get_unchecked(first_byte_index) };
-
-                    // The first byte in the current chunk must be a continuation byte (10xxxxxx)
-                    if first_byte & 0xC0 == 0x80 {
-                        // Check if the next byte is either ASCII whitespace or Unicode whitespace
-                        let next_byte_index = first_byte_index + 1;
-                        if next_byte_index < bytes.len() {
-                            let next_byte = unsafe { *bytes.get_unchecked(next_byte_index) };
-                            if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) ||
-                               UNICODE_WHITESPACE_PATTERNS.contains(&(next_byte as u16)) {
-                                // This is a valid continuation byte followed by whitespace, so adjust the word count
-                                curr.word_count += 1;
-                            }
-                        }
-                    }
-                }
-
-            // Check for straddling UTF-16 sequences
-            if prev.ending_in_utf16 {
-                for offset in 1..=2 {
-                    let first_byte_index = curr.block_start;
-                    if first_byte_index + offset < bytes.len() {
-                        let first_bytes = unsafe { bytes.get_unchecked(first_byte_index..first_byte_index + offset) };
-
-                        // UTF-16 can straddle by 1 or 2 bytes, adjust ASCII count for misinterpreted characters
-                        if first_bytes.iter().all(|&b| b & 0xC0 == 0x80) {
-                            curr.ascii_count += offset;
-
-                            // Check if the next byte is a whitespace character
-                            let next_byte_index = first_byte_index + offset;
+            if curr_last_byte == 0x16 || curr_last_byte == 0x18 || curr_last_byte == 0x20 {
+                let next_first_byte_index = next.block_start;
+                if next_first_byte_index < bytes.len() {
+                    let next_first_byte = bytes[next_first_byte_index];
+                    if (curr_last_byte == 0x20 && next_first_byte == 0x09) || (curr_last_byte == 0x20 && next_first_byte == 0x0A) {
+                        total_result.ascii_whitespace_count -= 1;
+                        total_result.unicode_whitespace_count += 1;
+                    } else {
+                        let combined_char = ((curr_last_byte as u16) << 8) | (next_first_byte as u16);
+                        if UNICODE_WHITESPACE_PATTERNS.contains(&combined_char) {
+                            total_result.unicode_whitespace_count += 1;
+                            let next_byte_index = next_first_byte_index + 1;
                             if next_byte_index < bytes.len() {
-                                let next_byte = unsafe { *bytes.get_unchecked(next_byte_index) };
+                                let next_byte = bytes[next_byte_index];
                                 if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) ||
-                                    UNICODE_WHITESPACE_PATTERNS.contains(&(next_byte as u16)) {
-                                    curr.word_count -= 1;
+                                   UNICODE_WHITESPACE_PATTERNS.contains(&(next_byte as u16)) {
+                                    total_result.word_count -= 1;
                                 }
                             }
                         }
@@ -677,51 +635,75 @@ fn adjust_word_count(results: &mut Vec<ChunkResult>, bytes: &[u8]) -> ChunkResul
                 }
             }
 
-            // Check for straddling UTF-32 sequences
-            if prev.ending_in_utf32 {
-                for offset in 1..=3 {
-                    let first_byte_index = curr.block_start;
-                    if first_byte_index + offset < bytes.len() {
-                        let first_bytes = unsafe { bytes.get_unchecked(first_byte_index..first_byte_index + offset) };
-
-                        // UTF-32 can straddle by 1, 2, or 3 bytes, adjust ASCII count for misinterpreted characters
-                        if first_bytes.iter().all(|&b| b & 0xC0 == 0x80) {
-                            curr.ascii_count += offset;
-
-                            // Check if the next byte is a whitespace character
-                            let next_byte_index = first_byte_index + offset;
-                            if next_byte_index < bytes.len() {
-                                let next_byte = unsafe { *bytes.get_unchecked(next_byte_index) };
-                                if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) ||
-                                    UNICODE_WHITESPACE_PATTERNS.contains(&(next_byte as u16)) {
-                                    curr.word_count -= 1;
-                                }
-                            }
+            let next_first_byte_index = next.block_start;
+            if next_first_byte_index < bytes.len() {
+                let next_first_byte = bytes[next_first_byte_index];
+                if next_first_byte & 0xC0 == 0x80 {
+                    let next_byte_index = next_first_byte_index + 1;
+                    if next_byte_index < bytes.len() {
+                        let next_byte = bytes[next_byte_index];
+                        if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) ||
+                           UNICODE_WHITESPACE_PATTERNS.contains(&(next_byte as u16)) {
+                            total_result.word_count += 1;
                         }
-                    }
-                }
-            }
-
-            // Adjust the word count if the previous chunk ended in a word and the current chunk starts with a non-whitespace character
-            if prev.ending_in_word {
-                let first_byte_index = curr.block_start;
-                if first_byte_index < bytes.len() {
-                    let first_byte = unsafe { *bytes.get_unchecked(first_byte_index) };
-                    if !ASCII_WHITESPACE_PATTERNS.contains(&first_byte) &&
-                        !UNICODE_WHITESPACE_PATTERNS.contains(&(first_byte as u16)) {
-                        curr.word_count -= 1;
                     }
                 }
             }
         }
 
-        // Sum up the lengths and counts as we traverse the blocks
-        total_chunk_length += curr.block_length;
+        if curr.ending_in_utf16 {
+            for offset in 1..=2 {
+                let next_first_byte_index = next.block_start;
+                if next_first_byte_index + offset < bytes.len() {
+                    let next_first_bytes = &bytes[next_first_byte_index..next_first_byte_index + offset];
+                    if next_first_bytes.iter().all(|&b| b & 0xC0 == 0x80) {
+                        total_result.ascii_count += offset;
+                        let next_byte_index = next_first_byte_index + offset;
+                        if next_byte_index < bytes.len() {
+                            let next_byte = bytes[next_byte_index];
+                            if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) ||
+                               UNICODE_WHITESPACE_PATTERNS.contains(&(next_byte as u16)) {
+                                total_result.word_count -= 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-        // Push the current block result to the final results
-        final_results.push(curr.clone());
+        if curr.ending_in_utf32 {
+            for offset in 1..=3 {
+                let next_first_byte_index = next.block_start;
+                if next_first_byte_index + offset < bytes.len() {
+                    let next_first_bytes = &bytes[next_first_byte_index..next_first_byte_index + offset];
+                    if next_first_bytes.iter().all(|&b| b & 0xC0 == 0x80) {
+                        total_result.ascii_count += offset;
+                        let next_byte_index = next_first_byte_index + offset;
+                        if next_byte_index < bytes.len() {
+                            let next_byte = bytes[next_byte_index];
+                            if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) ||
+                               UNICODE_WHITESPACE_PATTERNS.contains(&(next_byte as u16)) {
+                                total_result.word_count -= 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-        // Accumulate the total result
+        if curr.ending_in_word {
+            let next_first_byte_index = next.block_start;
+            if next_first_byte_index < bytes.len() {
+                let next_first_byte = bytes[next_first_byte_index];
+                if !ASCII_WHITESPACE_PATTERNS.contains(&next_first_byte) &&
+                   !UNICODE_WHITESPACE_PATTERNS.contains(&(next_first_byte as u16)) {
+                    total_result.word_count -= 1;
+                }
+            }
+        }
+
+        // Accumulate the results
+//      println!("total: {} adding: {}", total_result.ascii_count, curr.ascii_count);
         total_result.ascii_count += curr.ascii_count;
         total_result.two_byte_count += curr.two_byte_count;
         total_result.three_byte_count += curr.three_byte_count;
@@ -729,24 +711,47 @@ fn adjust_word_count(results: &mut Vec<ChunkResult>, bytes: &[u8]) -> ChunkResul
         total_result.ascii_whitespace_count += curr.ascii_whitespace_count;
         total_result.unicode_whitespace_count += curr.unicode_whitespace_count;
         total_result.word_count += curr.word_count;
-        total_result.block_length = total_chunk_length;
-        total_result.block_start = chunk_start;
 
-        println!("Adjusted block result: {:?}", curr);
+//	println!("ASCII: {}", total_result.ascii_count);
+//        // Debug: Print the delta of the changes
+//
+//        println!(
+//            "Block {}: Count changes - ASCII: {}, 2-byte: {}, 3-byte: {}, 4-byte: {}, ASCII WS: {}, Unicode WS: {}, Words: {}",
+//            i,
+//            total_result.ascii_count as isize - original_total_result.ascii_count as isize,
+//            total_result.two_byte_count as isize - original_total_result.two_byte_count as isize,
+//            total_result.three_byte_count as isize - original_total_result.three_byte_count as isize,
+//            total_result.four_byte_count as isize - original_total_result.four_byte_count as isize,
+//            total_result.ascii_whitespace_count as isize - original_total_result.ascii_whitespace_count as isize,
+//            total_result.unicode_whitespace_count as isize - original_total_result.unicode_whitespace_count as isize,
+//            total_result.word_count as isize - original_total_result.word_count as isize
+//        );
     }
 
     // Propagate flags from the last result
-    if let Some(last_result) = final_results.last() {
-        total_result.ending_in_word = last_result.ending_in_word;
-        total_result.ending_in_utf32 = last_result.ending_in_utf32;
-        total_result.ending_in_utf16 = last_result.ending_in_utf16;
-        total_result.ending_in_utf8 = last_result.ending_in_utf8;
-    }
+    let last_result = &results[results.len()-1];
+//    println!("LAST ASCII: {}", last_result.ascii_count);
+    total_result.ascii_count += last_result.ascii_count;
+    total_result.ending_in_word = last_result.ending_in_word;
+    total_result.ending_in_utf32 = last_result.ending_in_utf32;
+    total_result.ending_in_utf16 = last_result.ending_in_utf16;
+    total_result.ending_in_utf8 = last_result.ending_in_utf8;
 
-    println!("Final accumulated result: {:?}", total_result);
+    // Add the last block counts to the total result
+//    total_result.ascii_count += last_result.ascii_count;
+//    println!("ASCII-AFTER LAST_BLOCK: {}", total_result.ascii_count);
+    total_result.two_byte_count += last_result.two_byte_count;
+    total_result.three_byte_count += last_result.three_byte_count;
+    total_result.four_byte_count += last_result.four_byte_count;
+    total_result.ascii_whitespace_count += last_result.ascii_whitespace_count;
+    total_result.unicode_whitespace_count += last_result.unicode_whitespace_count;
+    total_result.word_count += last_result.word_count;
+
+//    println!("SUMMED accumulated result: {:?}", total_result);
 
     total_result
 }
+
 
 fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
     let file = File::open(filename)?;
@@ -765,7 +770,6 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
     };
 
     let total_chunks = (bytes.len() + chunk_size - 1) / chunk_size;
-    let mut results: Vec<ChunkResult> = vec![];
 
     // Determine padding size based on AVX2 or AVX512
     let padding_size = if std::is_x86_feature_detected!("avx512f") {
@@ -776,21 +780,21 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
         0
     };
 
-    println!("Starting parallel processing with {} chunks.", total_chunks);
+//    println!("Starting parallel processing with {} chunks.", total_chunks);
 
     // Process each chunk in parallel using Rayon
-    results.par_extend((0..total_chunks).into_par_iter().map(|chunk_idx| {
+    let mut chunk_results: Vec<ChunkResult> = (0..total_chunks).into_par_iter().map(|chunk_idx| {
         let chunk_start = chunk_idx * chunk_size;
         let chunk_end = usize::min(chunk_start + chunk_size, bytes.len());
         let chunk_len = chunk_end - chunk_start;
 
-        println!("Processing chunk {}: range {} - {}", chunk_idx, chunk_start, chunk_end);
+//        println!("Processing chunk {}: range {} - {}", chunk_idx, chunk_start, chunk_end);
 
         // Create a local results vector to store block results
         let mut local_results = vec![];
 
         for block_idx in 0..(chunk_len + block_size - 1) / block_size {
-            let block_start = chunk_start + block_idx * block_size;
+            let block_start = chunk_start + (block_idx) * block_size;
             let block_end = usize::min(block_start + block_size, chunk_end);
             let block = if padding_size > 0 && block_end - block_start < padding_size {
                 let mut padded_block = vec![0u8; padding_size];
@@ -801,7 +805,7 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
                 bytes[block_start..block_end].to_vec()
             };
 
-            println!("Processing block {}: range {} - {}", block_idx, block_start, block_end);
+//            println!("Processing block {}: range {} - {}", block_idx, block_start, block_end);
 
             let block_result = if std::is_x86_feature_detected!("avx512f") {
                 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
@@ -830,38 +834,44 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
             let mut result = block_result;
             result.block_start = block_start; // Set absolute block start index
             result.block_length = block_end - block_start; // Set block length
-            println!("Block result: {:?}", result);
+//            println!("---> Block result: {:?}", result);
+
+	    // Adjust the total result for the last partial chunk
+            if block_end - block_start < padding_size {
+                let actual_padding = block_size - (block_end - block_start);
+                result.ascii_count -= actual_padding;
+//                println!("****** block_size: {} actual_padding: {} block_start:{} block_end:{} padding_size: {} result.ascii_count: {}", block_size, actual_padding, block_start, block_end, padding_size, result.ascii_count) ;
+                // Check if the last byte of the real data is a whitespace character
+                let last_byte = bytes[bytes.len() - 1];
+                if ASCII_WHITESPACE_PATTERNS.contains(&last_byte) || UNICODE_WHITESPACE_PATTERNS.contains(&(last_byte as u16)) {
+                            result.word_count -= 1;
+                }
+
+//            println!("Final result after adjustment: {:?}", result);
+            // Return the adjusted chunk result for this chunk
+            }
+
             local_results.push(result);
         }
 
         // Adjust word count within the chunk
         let chunk_result = adjust_word_count(&mut local_results, bytes);
-        println!("Adjusted chunk result: {:?}", chunk_result);
-        local_results
-    }).flatten());
+//        println!("FIRST Adjusted chunk result for chunk {}: {:?}", chunk_idx, chunk_result);
 
-    // Adjust word count across chunk boundaries and accumulate the final results
-    let mut final_result = adjust_word_count(&mut results, bytes);
-    println!("Final accumulated result before adjustment: {:?}", final_result);
 
-    // Adjust the total result for the last partial chunk
-    let last_chunk_size = bytes.len() % chunk_size;
-    if last_chunk_size > 0 && padding_size > 0 {
-        let actual_padding = padding_size - last_chunk_size;
-        final_result.ascii_count -= actual_padding;
+        chunk_result
 
-        // Check if the last byte of the real data is a whitespace character
-        let last_byte = bytes[bytes.len() - last_chunk_size];
-        if ASCII_WHITESPACE_PATTERNS.contains(&last_byte) || UNICODE_WHITESPACE_PATTERNS.contains(&(last_byte as u16)) {
-            final_result.word_count -= 1;
-        }
-    }
 
-    println!("Final result after adjustment: {:?}", final_result);
+    }).collect();
+
+//    println!(" FINAL Chunk result: {:?}", chunk_results);
+    // Adjust word count for boundaries
+    let final_result = adjust_word_count(&mut chunk_results, bytes);
+
+//    println!("Final accumulated result: {:?}", final_result);
 
     Ok(final_result)
 }
-
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -881,12 +891,15 @@ fn main() {
 
     match count_patterns_parallel(filename) {
         Ok(result) => {
-            println!("Number of ASCII characters: {}", result.ascii_count);
-            println!("Number of 2-byte Unicode characters: {}", result.two_byte_count);
-            println!("Number of 3-byte Unicode characters: {}", result.three_byte_count);
-            println!("Number of 4-byte Unicode characters: {}", result.four_byte_count);
-            println!("Number of ASCII whitespace characters: {}", result.ascii_whitespace_count);
-            println!("Number of Unicode whitespace characters: {}", result.unicode_whitespace_count);
+            println!("ASCII characters: {}", result.ascii_count);
+            println!("2-byte Unicode characters: {}", result.two_byte_count);
+            println!("3-byte Unicode characters: {}", result.three_byte_count);
+            println!("4-byte Unicode characters: {}", result.four_byte_count);
+            println!("ASCII whitespace characters: {}", result.ascii_whitespace_count);
+            println!("Unicode whitespace characters: {}", result.unicode_whitespace_count);
+            println!("Total characters: {}", result.ascii_count + result.two_byte_count + result.three_byte_count + result.four_byte_count + result.ascii_whitespace_count + result.unicode_whitespace_count);
+            println!("Broken wc -mw compatibility character count: {}", result.ascii_count + result.two_byte_count + result.three_byte_count + result.four_byte_count + result.ascii_whitespace_count + result.unicode_whitespace_count *2);
+            println!("File Length(bytes): {}", result.ascii_count + result.two_byte_count*2 + result.three_byte_count*3 + result.four_byte_count*4 + result.ascii_whitespace_count + result.unicode_whitespace_count *2);
             println!("Number of words: {}", result.word_count);
         },
         Err(err) => eprintln!("Error: {}", err),
