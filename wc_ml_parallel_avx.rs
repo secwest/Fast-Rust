@@ -243,7 +243,7 @@ unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8) -> ChunkResult {
         | u64::from(compare_unicode_whitespace_avx2(chunk_data1, shifted_chunk_data1));
 
     // Boundary check for straddling UTF-8 whitespace sequences
-    if is_two_byte_utf_mask & 1 != 0 {
+    if (is_two_byte_utf_mask & (1 << 32)) != 0 {
         let last_byte = *chunk_ptr.add(31);
         if last_byte == 0x20 || last_byte == 0x18 || last_byte == 0x16 {
             let combined_char = ptr::read_unaligned(chunk_ptr.add(31) as *const u16);
