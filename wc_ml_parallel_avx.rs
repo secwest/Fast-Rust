@@ -221,35 +221,42 @@ unsafe fn compare_unicode_whitespace_avx2(chunk_data: __m256i, shifted_chunk_dat
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8) -> ChunkResult {
     let chunk_len = 64; // Define the chunk length
-	
-    // Process the first 32-byte chunk
+    // Load 32-byte chunks and their shifted versions
     let chunk_data1 = _mm256_loadu_si256(chunk_ptr as *const __m256i);
     let shifted_chunk_data1 = _mm256_loadu_si256(chunk_ptr.add(1) as *const __m256i);
     let chunk_data2 = _mm256_loadu_si256(chunk_ptr.add(32) as *const __m256i);
     let shifted_chunk_data2 = _mm256_loadu_si256(chunk_ptr.add(33) as *const __m256i);
 
-    // Apply masks and perform UTF sequence comparisons for the first chunk
-    let is_two_byte_utf_mask1 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11000000)), _mm256_set1_epi8(0b11000000))) as u32;
-    let is_three_byte_utf_mask1 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11100000)), _mm256_set1_epi8(0b11100000))) as u32;
-    let is_four_byte_utf_mask1 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11110000)), _mm256_set1_epi8(0b11110000))) as u32;
-
-    // Apply masks and perform UTF sequence comparisons for the second chunk
-    let is_two_byte_utf_mask2 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11000000)), _mm256_set1_epi8(0b11000000))) as u32;
-    let is_three_byte_utf_mask2 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11100000)), _mm256_set1_epi8(0b11100000))) as u32;
-    let is_four_byte_utf_mask2 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11110000)), _mm256_set1_epi8(0b11110000))) as u32;
-
-    // Combine the masks for the entire 64-byte chunk
-    let is_two_byte_utf_mask = (is_two_byte_utf_mask2 as u64) << 32 | is_two_byte_utf_mask1 as u64;
-    let is_three_byte_utf_mask = (is_three_byte_utf_mask2 as u64) << 32 | is_three_byte_utf_mask1 as u64;
-    let is_four_byte_utf_mask = (is_four_byte_utf_mask2 as u64) << 32 | is_four_byte_utf_mask1 as u64;
+    // Apply masks and perform UTF sequence comparisons
+    let is_two_byte_utf_mask = (u64::from(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11000000)), _mm256_set1_epi8(0b11000000))))
+        << 32) | u64::from(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11000000)), _mm256_set1_epi8(0b11000000))));
+    let is_three_byte_utf_mask = (u64::from(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11100000)), _mm256_set1_epi8(0b11100000))))
+        << 32) | u64::from(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11100000)), _mm256_set1_epi8(0b11100000))));
+    let is_four_byte_utf_mask = (u64::from(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11110000)), _mm256_set1_epi8(0b11110000))))
+        << 32) | u64::from(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11110000)), _mm256_set1_epi8(0b11110000))));
 
     // Identify and mask out ASCII whitespace
-    let ascii_whitespace_mask = compare_ascii_whitespace_avx2(chunk_data1) as u64 | (compare_ascii_whitespace_avx2(chunk_data2) as u64) << 32;
+    let ascii_whitespace_mask = u64::from(compare_ascii_whitespace_avx2(chunk_data1)) | (u64::from(compare_ascii_whitespace_avx2(chunk_data2)) << 32);
 
     // Identify and mask out Unicode whitespace
-    let unicode_whitespace_mask1 = compare_unicode_whitespace_avx2(chunk_data1, shifted_chunk_data1);
-    let unicode_whitespace_mask2 = compare_unicode_whitespace_avx2(chunk_data2, shifted_chunk_data2);
-    let unicode_whitespace_mask = (unicode_whitespace_mask2 as u64) << 32 | unicode_whitespace_mask1 as u64;
+    let unicode_whitespace_mask = ((u64::from(compare_unicode_whitespace_avx2(chunk_data2, shifted_chunk_data2))) << 32)
+        | u64::from(compare_unicode_whitespace_avx2(chunk_data1, shifted_chunk_data1));
+
+    // Boundary check for straddling UTF-8 sequences
+    if is_two_byte_utf_mask & 1 != 0 {
+        let last_byte = *chunk_ptr.add(31);
+        if last_byte == 0x20 || last_byte == 0x18 || last_byte == 0x16 {
+            let combined_char = ptr::read_unaligned(chunk_ptr.add(31) as *const u16);
+            if combined_char == 0x2009 || combined_char == 0x200A {
+                // Correct the masks for ASCII and Unicode whitespace
+                ascii_whitespace_mask &= !(1 << 31);
+                unicode_whitespace_mask |= 1 << 32;
+            } else if UNICODE_WHITESPACE_PATTERNS.contains(&combined_char) {
+                // Correct the mask for Unicode whitespace
+                unicode_whitespace_mask |= 1 << 32;
+            }
+        }
+    }
 
     // Combine the masks
     let whitespace_mask = ascii_whitespace_mask | unicode_whitespace_mask;
