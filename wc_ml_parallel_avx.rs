@@ -742,7 +742,7 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
                 result.ascii_count = result.ascii_count.saturating_sub(actual_padding);
                 // Check if the last byte of the real data is a whitespace character
                 let last_byte = bytes[bytes.len() - 1];
-                if ASCII_WHITESPACE_PATTERNS.contains(&last_byte) || UNICODE_WHITESPACE_PATTERNS.contains(&(last_byte as u16)) {
+                if ASCII_WHITESPACE_PATTERNS.contains(&last_byte) || UNICODE_WHITESPACE_PATTERNS.contains(&((last_byte-1) as u16)) {
                     result.word_count -= 1;
                 }
             }
