@@ -38,6 +38,7 @@ use rayon::prelude::*;
 use std::env;
 use std::fs::File;
 use std::io;
+use std::ptr;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 use core::arch::x86_64::{
@@ -47,7 +48,7 @@ use core::arch::x86_64::{
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use core::arch::x86_64::{
-    _mm256_loadu_si256, _mm256_set1_epi8, _mm256_set1_epi16, _mm256_and_si256, _mm256_srli_si256,
+    _mm256_loadu_si256, _mm256_set1_epi8, _mm256_set1_epi16, _mm256_and_si256, 
     _mm256_cmpeq_epi8, _mm256_cmpeq_epi16, _mm256_movemask_epi8, __m256i
 };
 
@@ -227,20 +228,28 @@ unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8) -> ChunkResult {
     let chunk_data2 = _mm256_loadu_si256(chunk_ptr.add(32) as *const __m256i);
     let shifted_chunk_data2 = _mm256_loadu_si256(chunk_ptr.add(33) as *const __m256i);
 
+
     // Apply masks and perform UTF sequence comparisons
-    let is_two_byte_utf_mask = (u64::from(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11000000)), _mm256_set1_epi8(0b11000000))))
-        << 32) | u64::from(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11000000)), _mm256_set1_epi8(0b11000000))));
-    let is_three_byte_utf_mask = (u64::from(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11100000)), _mm256_set1_epi8(0b11100000))))
-        << 32) | u64::from(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11100000)), _mm256_set1_epi8(0b11100000))));
-    let is_four_byte_utf_mask = (u64::from(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11110000)), _mm256_set1_epi8(0b11110000))))
-        << 32) | u64::from(_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11110000)), _mm256_set1_epi8(0b11110000))));
+    let is_two_byte_utf_mask = (((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
+        _mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11000000u8 as i8)), _mm256_set1_epi8(0b11000000u8 as i8)))) as u64)
+        << 32) | ((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
+        _mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11000000u8 as i8)), _mm256_set1_epi8(0b11000000u8 as i8)))) as u64);
+    let is_three_byte_utf_mask = (((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
+        _mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11100000u8 as i8)), _mm256_set1_epi8(0b11100000u8 as i8)))) as u64)
+        << 32) | ((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
+        _mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11100000u8 as i8)), _mm256_set1_epi8(0b11100000u8 as i8)))) as u64);
+    let is_four_byte_utf_mask = (((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
+        _mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11110000u8 as i8)), _mm256_set1_epi8(0b11110000u8 as i8)))) as u64)
+        << 32) | ((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
+        _mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11110000u8 as i8)), _mm256_set1_epi8(0b11110000u8 as i8)))) as u64);
 
     // Identify and mask out ASCII whitespace
-    let ascii_whitespace_mask = u64::from(compare_ascii_whitespace_avx2(chunk_data1)) | (u64::from(compare_ascii_whitespace_avx2(chunk_data2)) << 32);
+    let mut ascii_whitespace_mask = (compare_ascii_whitespace_avx2(chunk_data1) as u64) | 
+        ((compare_ascii_whitespace_avx2(chunk_data2) as u64) << 32);
 
     // Identify and mask out Unicode whitespace
-    let unicode_whitespace_mask = ((u64::from(compare_unicode_whitespace_avx2(chunk_data2, shifted_chunk_data2))) << 32)
-        | u64::from(compare_unicode_whitespace_avx2(chunk_data1, shifted_chunk_data1));
+    let mut unicode_whitespace_mask = ((compare_unicode_whitespace_avx2(chunk_data2, shifted_chunk_data2) as u64) << 32)
+        | (compare_unicode_whitespace_avx2(chunk_data1, shifted_chunk_data1) as u64);
 
     // Boundary check for straddling UTF-8 whitespace sequences
     if (is_two_byte_utf_mask & (1 << 32)) != 0 {
@@ -780,3 +789,4 @@ fn main() {
         Err(err) => eprintln!("Error: {}", err),
     }
 }
+dr@to
