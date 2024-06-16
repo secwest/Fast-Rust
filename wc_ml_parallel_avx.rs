@@ -224,9 +224,9 @@ unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8) -> ChunkResult {
 	
     // Process the first 32-byte chunk
     let chunk_data1 = _mm256_loadu_si256(chunk_ptr as *const __m256i);
-    let shifted_chunk_data1 = _mm256_srli_si256(chunk_data1, 1);
+    let shifted_chunk_data1 = _mm256_loadu_si256(chunk_ptr.add(1) as *const __m256i);
     let chunk_data2 = _mm256_loadu_si256(chunk_ptr.add(32) as *const __m256i);
-    let shifted_chunk_data2 = _mm256_srli_si256(chunk_data2, 1);
+    let shifted_chunk_data2 = _mm256_loadu_si256(chunk_ptr.add(33) as *const __m256i);
 
     // Create SIMD patterns for leading bytes of UTF sequences
     let two_byte_utf_mask = _mm256_set1_epi8(-64 as i8);  // 110xxxxx
@@ -274,7 +274,7 @@ unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8) -> ChunkResult {
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 unsafe fn count_patterns_avx512_chunk(chunk_ptr: *const u8) -> ChunkResult {
     let chunk_data = _mm512_loadu_si512(chunk_ptr as *const __m512i);
-    let shifted_chunk_data = _mm512_srli_si512(chunk_data, 1);
+    let shifted_chunk_data = _mm512_loadu_si512(chunk_ptr.add(1) as *const __m512i);
     let chunk_len = 64; // Define the chunk length
 	
     // Create SIMD patterns for leading bytes of UTF sequences
