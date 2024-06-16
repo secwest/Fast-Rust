@@ -685,7 +685,7 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
     };
 
     // Process each chunk in parallel using Rayon
-    let chunk_results: Vec<ChunkResult> = (0..total_chunks).into_par_iter().map(|chunk_idx| {
+    let mut chunk_results: Vec<ChunkResult> = (0..total_chunks).into_par_iter().map(|chunk_idx| {
         let chunk_start = chunk_idx * chunk_size;
         let chunk_end = usize::min(chunk_start + chunk_size, bytes.len());
         let chunk_len = chunk_end - chunk_start;
