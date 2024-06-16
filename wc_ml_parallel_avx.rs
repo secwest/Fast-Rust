@@ -664,50 +664,50 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
 
     let chunk_size = 1_048_576; // Process 1MB chunks
 
-    // Determine block size based on AVX2 or AVX512
+    // Determine block size based on AVX2 or AVX512 support
     let block_size = if std::is_x86_feature_detected!("avx512f") {
-        64
+        64 // Use 64-byte blocks for AVX-512
     } else if std::is_x86_feature_detected!("avx2") {
-        64
+        64 // Use 64-byte blocks for AVX2
     } else {
-        1_048_576 // Set block size to 1MB if not using AVX
+        1_048_576 // Use 1MB blocks if AVX is not supported
     };
 
-    let total_chunks = (bytes.len() + chunk_size - 1) / chunk_size;
+    let total_chunks = (bytes.len() + chunk_size - 1) / chunk_size; // Calculate total number of chunks
 
-    // Determine padding size based on AVX2 or AVX512
+    // Determine padding size based on AVX2 or AVX512 support
     let padding_size = if std::is_x86_feature_detected!("avx512f") {
-        64
+        64 // Use 64-byte padding for AVX-512
     } else if std::is_x86_feature_detected!("avx2") {
-        64
+        64 // Use 64-byte padding for AVX2
     } else {
-        0
+        0 // No padding needed if AVX is not supported
     };
-
 
     // Process each chunk in parallel using Rayon
-    let mut chunk_results: Vec<ChunkResult> = (0..total_chunks).into_par_iter().map(|chunk_idx| {
+    let chunk_results: Vec<ChunkResult> = (0..total_chunks).into_par_iter().map(|chunk_idx| {
         let chunk_start = chunk_idx * chunk_size;
         let chunk_end = usize::min(chunk_start + chunk_size, bytes.len());
         let chunk_len = chunk_end - chunk_start;
-
 
         // Create a local results vector to store block results
         let mut local_results = vec![];
 
         for block_idx in 0..(chunk_len + block_size - 1) / block_size {
-            let block_start = chunk_start + (block_idx) * block_size;
+            let block_start = chunk_start + block_idx * block_size;
             let block_end = usize::min(block_start + block_size, chunk_end);
             let block = if padding_size > 0 && block_end - block_start < padding_size {
+                // If the block is smaller than the padding size, pad it with zeros
                 let mut padded_block = vec![0u8; padding_size];
                 let real_size = block_end - block_start;
                 padded_block[..real_size].copy_from_slice(&bytes[block_start..block_end]);
                 padded_block
             } else {
+                // Otherwise, just use the block as is
                 bytes[block_start..block_end].to_vec()
             };
 
-
+            // Determine which SIMD version to use based on CPU features
             let block_result = if std::is_x86_feature_detected!("avx512f") {
                 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
                 {
@@ -736,17 +736,15 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
             result.block_start = block_start; // Set absolute block start index
             result.block_length = block_end - block_start; // Set block length
 
-	    // Adjust the total result for the last partial chunk
-            if block_end - block_start < padding_size {
+            // Adjust the total result for the last partial chunk
+            if block_end - block_start < block_size {
                 let actual_padding = block_size - (block_end - block_start);
-                result.ascii_count -= actual_padding;
+                result.ascii_count = result.ascii_count.saturating_sub(actual_padding);
                 // Check if the last byte of the real data is a whitespace character
                 let last_byte = bytes[bytes.len() - 1];
                 if ASCII_WHITESPACE_PATTERNS.contains(&last_byte) || UNICODE_WHITESPACE_PATTERNS.contains(&(last_byte as u16)) {
-                            result.word_count -= 1;
+                    result.word_count -= 1;
                 }
-
-            // Return the adjusted chunk result for this chunk
             }
 
             local_results.push(result);
@@ -755,15 +753,12 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
         // Adjust word count within the chunk
         let chunk_result = adjust_word_count(&mut local_results, bytes);
 
-
         chunk_result
-
 
     }).collect();
 
-    // Adjust word count for boundaries
+    // Adjust word count for boundaries between chunks
     let final_result = adjust_word_count(&mut chunk_results, bytes);
-
 
     Ok(final_result)
 }
