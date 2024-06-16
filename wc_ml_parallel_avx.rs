@@ -133,63 +133,6 @@ unsafe fn compare_ascii_whitespace_avx2(chunk_data: __m256i) -> u32 {
 
 
 
-//#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-//unsafe fn compare_ascii_whitespace_avx2(chunk_data: __m256i) -> u32 {
-//    let mut result_mask = 0u32;
-//
-//    // Function to print a __m256i as a binary string
-//    fn print_m256i(data: __m256i, name: &str) {
-//        let mut arr = [0i8; 32];
-//        unsafe {
-//            std::ptr::copy_nonoverlapping(&data as *const __m256i as *const i8, arr.as_mut_ptr(), 32);
-//        }
-//        let binary_str: String = arr.iter().map(|&b| format!("{:08b} ", b)).collect();
-//        println!("{}: {}", name, binary_str);
-//    }
-//
-//    // Function to print a mask as a binary string
-//    fn print_mask(mask: u32, name: &str) {
-//        println!("{}: {:032b}", name, mask);
-//    }
-//
-//    // Unroll comparisons for each pattern
-//    let tab_mask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x09))) as u32;
-//    print_m256i(chunk_data, "chunk_data");
-//    print_m256i(_mm256_set1_epi8(0x09), "_mm256_set1_epi8(0x09)");
-//    print_mask(tab_mask, "tab_mask");
-//
-//    let lf_mask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0A))) as u32;
-//    print_m256i(_mm256_set1_epi8(0x0A), "_mm256_set1_epi8(0x0A)");
-//    print_mask(lf_mask, "lf_mask");
-//
-//    let vt_mask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0B))) as u32;
-//    print_m256i(_mm256_set1_epi8(0x0B), "_mm256_set1_epi8(0x0B)");
-//    print_mask(vt_mask, "vt_mask");
-//
-//    let ff_mask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0C))) as u32;
-//    print_m256i(_mm256_set1_epi8(0x0C), "_mm256_set1_epi8(0x0C)");
-//    print_mask(ff_mask, "ff_mask");
-//
-//    let cr_mask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x0D))) as u32;
-//    print_m256i(_mm256_set1_epi8(0x0D), "_mm256_set1_epi8(0x0D)");
-//    print_mask(cr_mask, "cr_mask");
-//
-//    let sp_mask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk_data, _mm256_set1_epi8(0x20))) as u32;
-//    print_m256i(_mm256_set1_epi8(0x20), "_mm256_set1_epi8(0x20)");
-//    print_mask(sp_mask, "sp_mask");
-//
-//    result_mask |= tab_mask;
-//    result_mask |= lf_mask;
-//    result_mask |= vt_mask;
-//    result_mask |= ff_mask;
-//    result_mask |= cr_mask;
-//    result_mask |= sp_mask;
-//
-//    print_mask(result_mask, "result_mask");
-//
-//    result_mask
-//}
-//
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 unsafe fn compare_unicode_whitespace_avx512(chunk_data: __m512i, shifted_chunk_data: __m512i) -> u64 {
@@ -325,7 +268,6 @@ unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8) -> ChunkResult {
     let whitespace_mask = ascii_whitespace_mask | unicode_whitespace_mask;
 
     // Use the masks to count words and character types
-//    count_words_and_chars(chunk_len, is_two_byte_utf_mask, is_three_byte_utf_mask, is_four_byte_utf_mask, ascii_whitespace_mask, whitespace_mask, chunk_ptr)
     count_words_and_chars(chunk_len, is_two_byte_utf_mask, is_three_byte_utf_mask, is_four_byte_utf_mask, ascii_whitespace_mask, whitespace_mask)
 }
 
@@ -359,44 +301,9 @@ unsafe fn count_patterns_avx512_chunk(chunk_ptr: *const u8) -> ChunkResult {
     let whitespace_mask = ascii_whitespace_mask | unicode_whitespace_mask;
 
     // Use the masks to count words and character types
-//    count_words_and_chars(chunk_len, is_two_byte_utf_mask, is_three_byte_utf_mask, is_four_byte_utf_mask, ascii_whitespace_mask, whitespace_mask, chunk_ptr)
     count_words_and_chars(chunk_len, is_two_byte_utf_mask, is_three_byte_utf_mask, is_four_byte_utf_mask, ascii_whitespace_mask, whitespace_mask)
 }
 
-
-//    chunk_ptr: *const u8,  // Added chunk_ptr parameter
-//    let chunk = unsafe { std::slice::from_raw_parts(chunk_ptr, chunk_len) };  // Added this line
-//        // Print the chunk and current position
-//        let chunk_str: String = chunk.iter().map(|&c| {
-//            if c.is_ascii_graphic() || c == b' ' {
-//                c as char
-//            } else {
-//                '.'
-//            }
-//        }).collect();
-//        let mut pointer_line = String::new();
-//        for _ in 0..j {
-//            pointer_line.push(' ');
-//        }
-//        pointer_line.push('^');
-//
-//        println!("Chunk:\n{}\n{}", chunk_str, pointer_line);
-//
-//
-//        let current_char = chunk.get(j).copied().unwrap_or(0);
-//        let current_char_utf8 = String::from_utf8_lossy(&chunk[j..j + 4.min(chunk.len() - j)]);
-//
-//        println!("Position: {}, Bit: {:064b}", j, bit);
-//        println!("Current char (ASCII): {}", current_char);
-//        println!("Current char (UTF-8): {}", current_char_utf8);
-//        println!("is_two_byte_utf_mask: {:064b}", is_two_byte_utf_mask);
-//        println!("is_three_byte_utf_mask: {:064b}", is_three_byte_utf_mask);
-//        println!("is_four_byte_utf_mask: {:064b}", is_four_byte_utf_mask);
-//        println!("ascii_whitespace_mask: {:064b}", ascii_whitespace_mask);
-//        println!("whitespace_mask: {:064b}", whitespace_mask);
-//        println!("in_whitespace: {}", in_whitespace);
-//        println!("Current counts: {:?}", result);
-//
 
 fn count_words_and_chars(
     chunk_len: usize,
@@ -495,7 +402,6 @@ fn count_words_and_chars(
         result.ending_in_word = true;
     }
 
-//    println!("SUMASCII: {}",result.ascii_count);
     result
 }
 
@@ -597,14 +503,10 @@ fn adjust_word_count(results: &[ChunkResult], bytes: &[u8]) -> ChunkResult {
  
     total_result.ascii_count = 0;
 
-//     println!("Result Len: {} Results: {:?}",results.len(),results);
     for i in 0..(results.len() - 1) {
         let curr = &results[i];
         let next = &results[i + 1];
 
-//        println!("Processing block {} to {}: current result = {:?}", i, i + 1, curr);
-//        println!("Current ascii: {} Next ascii: {}", curr.ascii_count, next.ascii_count);
-//        let original_total_result = total_result.clone();
 
         // Check if the current block ends in a UTF-8, UTF-16, or UTF-32 sequence and adjust the total result accordingly
         if curr.ending_in_utf8 {
@@ -703,7 +605,6 @@ fn adjust_word_count(results: &[ChunkResult], bytes: &[u8]) -> ChunkResult {
         }
 
         // Accumulate the results
-//      println!("total: {} adding: {}", total_result.ascii_count, curr.ascii_count);
         total_result.ascii_count += curr.ascii_count;
         total_result.two_byte_count += curr.two_byte_count;
         total_result.three_byte_count += curr.three_byte_count;
@@ -712,25 +613,10 @@ fn adjust_word_count(results: &[ChunkResult], bytes: &[u8]) -> ChunkResult {
         total_result.unicode_whitespace_count += curr.unicode_whitespace_count;
         total_result.word_count += curr.word_count;
 
-//	println!("ASCII: {}", total_result.ascii_count);
-//        // Debug: Print the delta of the changes
-//
-//        println!(
-//            "Block {}: Count changes - ASCII: {}, 2-byte: {}, 3-byte: {}, 4-byte: {}, ASCII WS: {}, Unicode WS: {}, Words: {}",
-//            i,
-//            total_result.ascii_count as isize - original_total_result.ascii_count as isize,
-//            total_result.two_byte_count as isize - original_total_result.two_byte_count as isize,
-//            total_result.three_byte_count as isize - original_total_result.three_byte_count as isize,
-//            total_result.four_byte_count as isize - original_total_result.four_byte_count as isize,
-//            total_result.ascii_whitespace_count as isize - original_total_result.ascii_whitespace_count as isize,
-//            total_result.unicode_whitespace_count as isize - original_total_result.unicode_whitespace_count as isize,
-//            total_result.word_count as isize - original_total_result.word_count as isize
-//        );
     }
 
     // Propagate flags from the last result
     let last_result = &results[results.len()-1];
-//    println!("LAST ASCII: {}", last_result.ascii_count);
     total_result.ascii_count += last_result.ascii_count;
     total_result.ending_in_word = last_result.ending_in_word;
     total_result.ending_in_utf32 = last_result.ending_in_utf32;
@@ -738,16 +624,12 @@ fn adjust_word_count(results: &[ChunkResult], bytes: &[u8]) -> ChunkResult {
     total_result.ending_in_utf8 = last_result.ending_in_utf8;
 
     // Add the last block counts to the total result
-//    total_result.ascii_count += last_result.ascii_count;
-//    println!("ASCII-AFTER LAST_BLOCK: {}", total_result.ascii_count);
     total_result.two_byte_count += last_result.two_byte_count;
     total_result.three_byte_count += last_result.three_byte_count;
     total_result.four_byte_count += last_result.four_byte_count;
     total_result.ascii_whitespace_count += last_result.ascii_whitespace_count;
     total_result.unicode_whitespace_count += last_result.unicode_whitespace_count;
     total_result.word_count += last_result.word_count;
-
-//    println!("SUMMED accumulated result: {:?}", total_result);
 
     total_result
 }
@@ -780,7 +662,6 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
         0
     };
 
-//    println!("Starting parallel processing with {} chunks.", total_chunks);
 
     // Process each chunk in parallel using Rayon
     let mut chunk_results: Vec<ChunkResult> = (0..total_chunks).into_par_iter().map(|chunk_idx| {
@@ -788,7 +669,6 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
         let chunk_end = usize::min(chunk_start + chunk_size, bytes.len());
         let chunk_len = chunk_end - chunk_start;
 
-//        println!("Processing chunk {}: range {} - {}", chunk_idx, chunk_start, chunk_end);
 
         // Create a local results vector to store block results
         let mut local_results = vec![];
@@ -805,7 +685,6 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
                 bytes[block_start..block_end].to_vec()
             };
 
-//            println!("Processing block {}: range {} - {}", block_idx, block_start, block_end);
 
             let block_result = if std::is_x86_feature_detected!("avx512f") {
                 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
@@ -834,20 +713,17 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
             let mut result = block_result;
             result.block_start = block_start; // Set absolute block start index
             result.block_length = block_end - block_start; // Set block length
-//            println!("---> Block result: {:?}", result);
 
 	    // Adjust the total result for the last partial chunk
             if block_end - block_start < padding_size {
                 let actual_padding = block_size - (block_end - block_start);
                 result.ascii_count -= actual_padding;
-//                println!("****** block_size: {} actual_padding: {} block_start:{} block_end:{} padding_size: {} result.ascii_count: {}", block_size, actual_padding, block_start, block_end, padding_size, result.ascii_count) ;
                 // Check if the last byte of the real data is a whitespace character
                 let last_byte = bytes[bytes.len() - 1];
                 if ASCII_WHITESPACE_PATTERNS.contains(&last_byte) || UNICODE_WHITESPACE_PATTERNS.contains(&(last_byte as u16)) {
                             result.word_count -= 1;
                 }
 
-//            println!("Final result after adjustment: {:?}", result);
             // Return the adjusted chunk result for this chunk
             }
 
@@ -856,7 +732,6 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
 
         // Adjust word count within the chunk
         let chunk_result = adjust_word_count(&mut local_results, bytes);
-//        println!("FIRST Adjusted chunk result for chunk {}: {:?}", chunk_idx, chunk_result);
 
 
         chunk_result
@@ -864,11 +739,9 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
 
     }).collect();
 
-//    println!(" FINAL Chunk result: {:?}", chunk_results);
     // Adjust word count for boundaries
     let final_result = adjust_word_count(&mut chunk_results, bytes);
 
-//    println!("Final accumulated result: {:?}", final_result);
 
     Ok(final_result)
 }
