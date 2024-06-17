@@ -570,15 +570,14 @@ fn adjust_word_count(results: &[ChunkResult], bytes: &[u8]) -> ChunkResult {
                         if let Some(&next_byte) = bytes.get(next.block_start + offset) {
                             if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) {
                                 total_result.word_count -= 1;
-                                break;
                             } else if let Some(&third_byte) = bytes.get(next.block_start + offset + 1) {
                                 let combined_next = ((next_byte as u16) << 8) | (third_byte as u16);
                                 if UNICODE_WHITESPACE_PATTERNS.contains(&combined_next) {
                                     total_result.word_count -= 1;
-                                    break;
                                 }
-                            }
-                        }
+			    }
+                        } 
+                        break;
                     }
                 }
             }
@@ -598,15 +597,14 @@ fn adjust_word_count(results: &[ChunkResult], bytes: &[u8]) -> ChunkResult {
                         if let Some(&next_byte) = bytes.get(next.block_start + offset) {
                             if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) {
                                 total_result.word_count -= 1;
-                                break;
                             } else if let Some(&third_byte) = bytes.get(next.block_start + offset + 1) {
                                 let combined_next = ((next_byte as u16) << 8) | (third_byte as u16);
                                 if UNICODE_WHITESPACE_PATTERNS.contains(&combined_next) {
                                     total_result.word_count -= 1;
-                                    break;
                                 }
                             }
                         }
+			break;
                     }
                 }
             }
