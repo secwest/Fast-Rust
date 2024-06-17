@@ -231,13 +231,13 @@ unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8) -> ChunkResult {
 
     // Apply masks and perform UTF sequence comparisons
     let is_two_byte_utf_mask = (((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
-        _mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11000000u8 as i8)), _mm256_set1_epi8(0b11000000u8 as i8)))) as u64)
+        _mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11110000u8 as i8)), _mm256_set1_epi8(0b11000000u8 as i8)))) as u64)
         << 32) | ((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
-        _mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11000000u8 as i8)), _mm256_set1_epi8(0b11000000u8 as i8)))) as u64);
+        _mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11110000u8 as i8)), _mm256_set1_epi8(0b11000000u8 as i8)))) as u64);
     let is_three_byte_utf_mask = (((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
-        _mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11100000u8 as i8)), _mm256_set1_epi8(0b11100000u8 as i8)))) as u64)
+        _mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11110000u8 as i8)), _mm256_set1_epi8(0b11100000u8 as i8)))) as u64)
         << 32) | ((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
-        _mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11100000u8 as i8)), _mm256_set1_epi8(0b11100000u8 as i8)))) as u64);
+        _mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11110000u8 as i8)), _mm256_set1_epi8(0b11100000u8 as i8)))) as u64);
     let is_four_byte_utf_mask = (((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
         _mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11110000u8 as i8)), _mm256_set1_epi8(0b11110000u8 as i8)))) as u64)
         << 32) | ((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
