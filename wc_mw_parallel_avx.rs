@@ -633,13 +633,13 @@ fn adjust_word_count(results: &[ChunkResult], bytes: &[u8]) -> ChunkResult {
 
     // Propagate flags from the last result
     let last_result = &results[results.len() - 1];
-    total_result.ascii_count += last_result.ascii_count;
     total_result.ending_in_word = last_result.ending_in_word;
     total_result.ending_in_utf32 = last_result.ending_in_utf32;
     total_result.ending_in_utf16 = last_result.ending_in_utf16;
     total_result.ending_in_utf8 = last_result.ending_in_utf8;
 
     // Add the last block counts to the total result
+    total_result.ascii_count += last_result.ascii_count;
     total_result.two_byte_count += last_result.two_byte_count;
     total_result.three_byte_count += last_result.three_byte_count;
     total_result.four_byte_count += last_result.four_byte_count;
