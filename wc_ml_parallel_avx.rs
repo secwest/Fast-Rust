@@ -231,13 +231,13 @@ unsafe fn count_patterns_avx2_chunk(chunk_ptr: *const u8) -> ChunkResult {
 
     // Apply masks and perform UTF sequence comparisons
     let is_two_byte_utf_mask = (((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
-        _mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11000000u8 as i8)), _mm256_set1_epi8(0b11000000u8 as i8)))) as u64)
+        _mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11110000u8 as i8)), _mm256_set1_epi8(0b11000000u8 as i8)))) as u64)
         << 32) | ((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
-        _mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11000000u8 as i8)), _mm256_set1_epi8(0b11000000u8 as i8)))) as u64);
+        _mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11110000u8 as i8)), _mm256_set1_epi8(0b11000000u8 as i8)))) as u64);
     let is_three_byte_utf_mask = (((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
-        _mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11100000u8 as i8)), _mm256_set1_epi8(0b11100000u8 as i8)))) as u64)
+        _mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11110000u8 as i8)), _mm256_set1_epi8(0b11100000u8 as i8)))) as u64)
         << 32) | ((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
-        _mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11100000u8 as i8)), _mm256_set1_epi8(0b11100000u8 as i8)))) as u64);
+        _mm256_and_si256(chunk_data1, _mm256_set1_epi8(0b11110000u8 as i8)), _mm256_set1_epi8(0b11100000u8 as i8)))) as u64);
     let is_four_byte_utf_mask = (((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
         _mm256_and_si256(chunk_data2, _mm256_set1_epi8(0b11110000u8 as i8)), _mm256_set1_epi8(0b11110000u8 as i8)))) as u64)
         << 32) | ((_mm256_movemask_epi8(_mm256_cmpeq_epi8(
@@ -281,8 +281,8 @@ unsafe fn count_patterns_avx512_chunk(chunk_ptr: *const u8) -> ChunkResult {
     let chunk_len = 64; // Define the chunk length
 	
     // Apply masks and perform UTF sequence comparisons
-    let is_two_byte_utf_mask = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, _mm512_set1_epi8(0b11000000)), _mm512_set1_epi8(0b11000000)) as u64;
-    let is_three_byte_utf_mask = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, _mm512_set1_epi8(0b11100000)), _mm512_set1_epi8(0b11100000)) as u64;
+    let is_two_byte_utf_mask = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, _mm512_set1_epi8(0b11110000)), _mm512_set1_epi8(0b11000000)) as u64;
+    let is_three_byte_utf_mask = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, _mm512_set1_epi8(0b11110000)), _mm512_set1_epi8(0b11100000)) as u64;
     let is_four_byte_utf_mask = _mm512_cmpeq_epi8_mask(_mm512_and_si512(chunk_data, _mm512_set1_epi8(0b11110000)), _mm512_set1_epi8(0b11110000)) as u64;
 
     // Identify and mask out ASCII whitespace
