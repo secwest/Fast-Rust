@@ -552,22 +552,28 @@ fn adjust_word_count(results: &[ChunkResult], bytes: &[u8]) -> ChunkResult {
             }
         }
 
+
         // Check for straddling UTF-16 sequences
         if curr.ending_in_utf16 {
-            let next_bytes = &bytes[next.block_start..];
-            for offset in 1..=2 {
-                if next_bytes.len() >= offset {
-                    let next_first_bytes = &next_bytes[..offset];
+            for offset in (1..=2).rev() {
+                if next.block_start + offset < bytes.len() {
+                    let next_first_bytes = &bytes[next.block_start..next.block_start + offset];
 
                     // UTF-16 can straddle by 1 or 2 bytes, adjust ASCII count for misinterpreted characters
                     if next_first_bytes.iter().all(|&b| b & 0xC0 == 0x80) {
                         total_result.ascii_count += offset;
 
-                        // Check if the next byte is a whitespace character
-                        if let Some(&next_byte) = next_bytes.get(offset) {
-                            if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) ||
-                                UNICODE_WHITESPACE_PATTERNS.contains(&(next_byte as u16)) {
+                        // Check if the next byte is ASCII whitespace
+                        if let Some(&next_byte) = bytes.get(next.block_start + offset) {
+                            if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) {
                                 total_result.word_count -= 1;
+                                break;
+                            } else if let Some(&third_byte) = bytes.get(next.block_start + offset + 1) {
+                                let combined_next = ((next_byte as u16) << 8) | (third_byte as u16);
+                                if UNICODE_WHITESPACE_PATTERNS.contains(&combined_next) {
+                                    total_result.word_count -= 1;
+                                    break;
+                                }
                             }
                         }
                     }
@@ -577,26 +583,32 @@ fn adjust_word_count(results: &[ChunkResult], bytes: &[u8]) -> ChunkResult {
 
         // Check for straddling UTF-32 sequences
         if curr.ending_in_utf32 {
-            let next_bytes = &bytes[next.block_start..];
-            for offset in 1..=3 {
-                if next_bytes.len() >= offset {
-                    let next_first_bytes = &next_bytes[..offset];
+            for offset in (1..=3).rev() {
+                if next.block_start + offset < bytes.len() {
+                    let next_first_bytes = &bytes[next.block_start..next.block_start + offset];
 
                     // UTF-32 can straddle by 1, 2, or 3 bytes, adjust ASCII count for misinterpreted characters
                     if next_first_bytes.iter().all(|&b| b & 0xC0 == 0x80) {
                         total_result.ascii_count += offset;
 
-                        // Check if the next byte is a whitespace character
-                        if let Some(&next_byte) = next_bytes.get(offset) {
-                            if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) ||
-                                UNICODE_WHITESPACE_PATTERNS.contains(&(next_byte as u16)) {
+                        // Check if the next byte is ASCII whitespace
+                        if let Some(&next_byte) = bytes.get(next.block_start + offset) {
+                            if ASCII_WHITESPACE_PATTERNS.contains(&next_byte) {
                                 total_result.word_count -= 1;
+                                break;
+                            } else if let Some(&third_byte) = bytes.get(next.block_start + offset + 1) {
+                                let combined_next = ((next_byte as u16) << 8) | (third_byte as u16);
+                                if UNICODE_WHITESPACE_PATTERNS.contains(&combined_next) {
+                                    total_result.word_count -= 1;
+                                    break;
+                                }
                             }
                         }
                     }
                 }
             }
         }
+
 
         // Adjust the word count if the previous chunk ended in a word and the current chunk starts with a non-whitespace character
         let next_bytes = &bytes[next.block_start..];
