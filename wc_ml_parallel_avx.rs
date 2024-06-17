@@ -754,6 +754,7 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
 
     // Adjust word count for boundaries between chunks
     let final_result = adjust_word_count(&mut chunk_results, bytes);
+    result.block_length = bytes.len();
 
     Ok(final_result)
 }
@@ -784,7 +785,7 @@ fn main() {
             println!("Unicode whitespace characters: {}", result.unicode_whitespace_count);
             println!("Total characters: {}", result.ascii_count + result.two_byte_count + result.three_byte_count + result.four_byte_count + result.ascii_whitespace_count + result.unicode_whitespace_count);
             println!("Broken wc -mw compatibility character count: {}", result.ascii_count + result.two_byte_count + result.three_byte_count + result.four_byte_count + result.ascii_whitespace_count + result.unicode_whitespace_count *2);
-            println!("File Length(bytes): {}", result.ascii_count + result.two_byte_count*2 + result.three_byte_count*3 + result.four_byte_count*4 + result.ascii_whitespace_count + result.unicode_whitespace_count *2);
+            println!("File Length(bytes): {}", result.block_length);
             println!("Number of words: {}", result.word_count);
         },
         Err(err) => eprintln!("Error: {}", err),
