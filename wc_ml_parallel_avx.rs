@@ -752,7 +752,7 @@ fn count_patterns_parallel(filename: &str) -> io::Result<ChunkResult> {
 
     // Adjust word count for boundaries between chunks
     let final_result = adjust_word_count(&mut chunk_results, bytes);
-    result.block_length = bytes.len();
+    final_result.block_length = bytes.len();
 
     Ok(final_result)
 }
