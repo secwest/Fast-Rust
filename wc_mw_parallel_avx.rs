@@ -25,7 +25,9 @@
 // (C) Copyright 2024 Dragos Ruiu
 //
 // Dedicated to Rob "@ErrataRob" Graham
-// ....and my dear mom, who is struggling, as I type. You really were the one who taught me algorithmic numerical analysis.
+// ....and my dear mom, who is struggling, as I type.
+// And in the interim while this was made has passed.
+// Mom, You really were the one who taught me algorithmic numerical analysis, when you first pulled out your old math book about FOTRAN implementations of classic math problems for me.
 
 // Import necessary crates and modules
 
