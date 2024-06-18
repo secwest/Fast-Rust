@@ -27,7 +27,7 @@
 // Dedicated to Rob "@ErrataRob" Graham
 // ....and my dear mom, who is struggling, as I type.
 // And in the interim while this was made has passed.
-// Mom, You really were the one who taught me algorithmic numerical analysis, when you first pulled out your old math book about FOTRAN implementations of classic math problems for me. I love you.
+// Mom, You really were the one who taught me algorithmic numerical analysis, when you first pulled out your old math book about FORTRAN implementations of classic math problems for me. I love you.
 
 // Import necessary crates and modules
 
