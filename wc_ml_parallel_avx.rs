@@ -1,3 +1,4 @@
+// Parallel Multi-Core SIMD Miltiple Simultanous Pattern Matching Algorithm - IOANA (Iterative Optimization Algorithm for Numeric Analysis)
 // wc -mw optimized in Rust using Rayon for parallelization, and AVX SIMD optimization on each core if AVX2 or AVX512 are available.
 // please note: at this time using avx2 requires using the nightly rustc tool chain: 
 //                                                    rustup install nightly
@@ -25,7 +26,7 @@
 // (C) Copyright 2024 Dragos Ruiu
 //
 // Dedicated to Rob "@ErrataRob" Graham
-// ....and my dear mom, who is struggling, as I type.
+// ....and my dear mom, Ioana, who is struggling, as I type.
 // And in the interim while this was made has passed.
 // Mom, You really were the one who taught me algorithmic numerical analysis, when you first pulled out your old math book about FORTRAN implementations of classic math problems for me. I love you.
 
