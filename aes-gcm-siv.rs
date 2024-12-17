@@ -972,9 +972,6 @@ fn aes_gcmsiv_get_status_code_msg(status:aes_gcmsiv_status_t)-> &'static str {
     }
 }
 
-// X86-64 Optimizations: 
-//
-
 #![feature(stdsimd, target_feature_11)]
 use std::arch::x86_64::*;
 use std::mem;
@@ -984,166 +981,166 @@ use std::slice;
 const AES_BLOCK_SIZE: usize = 16;
 const POLYVAL_SIZE: usize = 16;
 
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[repr(i32)]
-enum aes_gcmsiv_status_t {
-    AES_GCMSIV_SUCCESS = 0,
-    AES_GCMSIV_FAILURE = -1,
-    AES_GCMSIV_OUT_OF_MEMORY = -2,
-    AES_GCMSIV_UPDATE_OUTPUT_SIZE = -3,
-    AES_GCMSIV_INVALID_PARAMETERS = -4,
-    AES_GCMSIV_INVALID_KEY_SIZE = -5,
-    AES_GCMSIV_INVALID_NONCE_SIZE = -6,
-    AES_GCMSIV_INVALID_PLAINTEXT_SIZE = -7,
-    AES_GCMSIV_INVALID_AAD_SIZE = -8,
-    AES_GCMSIV_INVALID_CIPHERTEXT_SIZE = -9,
-    AES_GCMSIV_INVALID_TAG = -10,
+#[derive(Debug)]
+enum AesGcmSivError {
+    InvalidParameters,
+    InvalidKeySize,
+    InvalidNonceSize,
 }
 
+type Result<T> = std::result::Result<T, AesGcmSivError>;
+
 #[inline]
-unsafe fn aes_gcmsiv_zeroize(ptr: *mut u8, len: usize) {
+unsafe fn zeroize(ptr: *mut u8, len: usize) {
     for i in 0..len {
         ptr::write_volatile(ptr.add(i), 0);
     }
 }
 
 #[inline]
-unsafe fn XOR(a: __m128i, b: __m128i) -> __m128i {
+unsafe fn xor(a: __m128i, b: __m128i) -> __m128i {
     _mm_xor_si128(a,b)
 }
 
 #[inline]
-unsafe fn AESKEYGENASSIST(a: __m128i, r: i32) -> __m128i {
+unsafe fn aeskeygenassist(a: __m128i, r: i32) -> __m128i {
     _mm_aeskeygenassist_si128(a, r)
 }
 
 #[inline]
-unsafe fn SPLIT(a: __m128i, b: i32) -> __m128i {
+unsafe fn split(a: __m128i, b: i32) -> __m128i {
     _mm_shuffle_epi32(a, b)
 }
 
 #[inline]
-unsafe fn SHIFT_ADD(a: __m128i) -> __m128i {
+unsafe fn shift_add(a: __m128i) -> __m128i {
     let tmp = _mm_slli_si128(a,4);
-    XOR(a, tmp)
+    xor(a, tmp)
 }
 
 #[inline]
-unsafe fn TSHIFT_ADD(a: __m128i) -> __m128i {
-    SHIFT_ADD(SHIFT_ADD(SHIFT_ADD(a)))
+unsafe fn tshift_add(a: __m128i) -> __m128i {
+    shift_add(shift_add(shift_add(a)))
 }
 
 #[inline]
-unsafe fn KEY_EXP_HELPER(k0: __m128i, k1: __m128i, r: i32, s: i32) -> __m128i {
-    let t = AESKEYGENASSIST(k1, r);
-    XOR(TSHIFT_ADD(k0), SPLIT(t, s))
+unsafe fn key_exp_helper(k0: __m128i, k1: __m128i, r: i32, s: i32) -> __m128i {
+    let t = aeskeygenassist(k1, r);
+    xor(tshift_add(k0), split(t, s))
 }
 
 #[inline]
-unsafe fn KEY_EXP_128(key: &mut [__m128i], i: usize, r: i32) -> __m128i {
-    KEY_EXP_HELPER(key[i], key[i], r, 0xff)
+unsafe fn key_exp_128(key: &mut [__m128i], i: usize, r: i32) -> __m128i {
+    key_exp_helper(key[i], key[i], r, 0xff)
 }
 
 #[inline]
-unsafe fn KEY_EXP_256_1(key: &mut [__m128i], i: usize, r: i32) -> __m128i {
-    KEY_EXP_HELPER(key[i], key[i+1], r, 0xff)
+unsafe fn key_exp_256_1(key: &mut [__m128i], i: usize, r: i32) -> __m128i {
+    key_exp_helper(key[i], key[i+1], r, 0xff)
 }
 
 #[inline]
-unsafe fn KEY_EXP_256_2(key: &mut [__m128i], i: usize) -> __m128i {
-    KEY_EXP_HELPER(key[i], key[i+1], 0x00, 0xaa)
+unsafe fn key_exp_256_2(key: &mut [__m128i], i: usize) -> __m128i {
+    key_exp_helper(key[i], key[i+1], 0x00, 0xaa)
 }
 
 #[repr(C)]
-struct aes_x86_64 {
+pub struct AesX86_64 {
     key: [__m128i; 15],
     key_sz: usize,
 }
 
-#[target_feature(enable = "aes")]
-unsafe fn loadu(data: *const u8) -> __m128i {
+impl AesX86_64 {
+    pub fn new() -> Self {
+        unsafe {
+            let mut ctx = mem::MaybeUninit::<AesX86_64>::uninit();
+            ptr::write_bytes(ctx.as_mut_ptr(), 0, 1);
+            ctx.assume_init()
+        }
+    }
+
+    pub fn set_key(&mut self, key: &[u8]) -> Result<()> {
+        if key.len()!=16 && key.len()!=32 {
+            return Err(AesGcmSivError::InvalidKeySize);
+        }
+        self.key_sz = key.len();
+        unsafe {
+            self.key[0]=loadu(key.as_ptr());
+            if key.len()==16 {
+                // AES-128 key expansion
+                self.key[5] = key_exp_128(&mut self.key,0,0x01);
+                self.key[6] = key_exp_128(&mut self.key,5,0x02);
+                self.key[7] = key_exp_128(&mut self.key,6,0x04);
+                self.key[8] = key_exp_128(&mut self.key,7,0x08);
+                self.key[9] = key_exp_128(&mut self.key,8,0x10);
+                self.key[10] = key_exp_128(&mut self.key,9,0x20);
+                self.key[11] = key_exp_128(&mut self.key,10,0x40);
+                self.key[12] = key_exp_128(&mut self.key,11,0x80);
+                self.key[13] = key_exp_128(&mut self.key,12,0x1b);
+                self.key[14] = key_exp_128(&mut self.key,13,0x36);
+            } else {
+                // AES-256
+                self.key[1] = loadu(key.as_ptr().add(16));
+                self.key[2] = key_exp_256_1(&mut self.key,0,0x01);
+                self.key[3] = key_exp_256_2(&mut self.key,1);
+                self.key[4] = key_exp_256_1(&mut self.key,2,0x02);
+                self.key[5] = key_exp_256_2(&mut self.key,3);
+                self.key[6] = key_exp_256_1(&mut self.key,4,0x04);
+                self.key[7] = key_exp_256_2(&mut self.key,5);
+                self.key[8] = key_exp_256_1(&mut self.key,6,0x08);
+                self.key[9] = key_exp_256_2(&mut self.key,7);
+                self.key[10]= key_exp_256_1(&mut self.key,8,0x10);
+                self.key[11]= key_exp_256_2(&mut self.key,9);
+                self.key[12]= key_exp_256_1(&mut self.key,10,0x20);
+                self.key[13]= key_exp_256_2(&mut self.key,11);
+                self.key[14]= key_exp_256_1(&mut self.key,12,0x40);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn ecb_encrypt(&self, plain: &[u8;16]) -> Result<[u8;16]> {
+        unsafe {
+            let block=loadu(plain.as_ptr());
+            let c = aes_encrypt(self, block);
+            let mut cipher=[0u8;16];
+            storeu(cipher.as_mut_ptr(), c);
+            Ok(cipher)
+        }
+    }
+
+    pub fn ctr(&self, nonce:&[u8;16], input:&[u8], output:&mut [u8]) -> Result<()> {
+        if output.len()<input.len() {
+            return Err(AesGcmSivError::InvalidParameters);
+        }
+        unsafe {aes_ctr(self,nonce,input,output)}
+    }
+}
+
+impl Drop for AesX86_64 {
+    fn drop(&mut self) {
+        unsafe {
+            zeroize(self as *mut _ as *mut u8, mem::size_of::<AesX86_64>());
+        }
+    }
+}
+
+#[target_feature(enable="aes")]
+unsafe fn loadu(data:*const u8)->__m128i {
     _mm_loadu_si128(data as *const __m128i)
 }
 
-#[target_feature(enable = "aes")]
-unsafe fn storeu(data: *mut u8, reg: __m128i) {
+#[target_feature(enable="aes")]
+unsafe fn storeu(data:*mut u8, reg:__m128i) {
     _mm_storeu_si128(data as *mut __m128i, reg);
 }
 
-#[no_mangle]
-#[target_feature(enable = "aes")]
-unsafe extern "C" fn aes_x86_64_init(ctx: *mut aes_x86_64) {
-    if ctx.is_null() {
-        return;
-    }
-    ptr::write_bytes(ctx, 0, 1);
-}
-
-#[no_mangle]
-#[target_feature(enable = "aes")]
-unsafe extern "C" fn aes_x86_64_free(ctx: *mut aes_x86_64) {
-    if ctx.is_null() {
-        return;
-    }
-    aes_gcmsiv_zeroize(ctx as *mut u8, mem::size_of::<aes_x86_64>());
-}
-
-#[no_mangle]
-#[target_feature(enable = "aes")]
-unsafe extern "C" fn aes_x86_64_set_key(ctx: *mut aes_x86_64, key_ptr: *const u8, key_sz: usize) -> i32 {
-    if ctx.is_null() || (key_ptr.is_null() && key_sz !=0 ) {
-        return aes_gcmsiv_status_t::AES_GCMSIV_INVALID_PARAMETERS as i32;
-    }
-    if key_sz!=16 && key_sz!=32 {
-        return aes_gcmsiv_status_t::AES_GCMSIV_INVALID_KEY_SIZE as i32;
-    }
-
-    let ctx_ref = &mut *ctx;
-    ctx_ref.key_sz=key_sz;
-    let keyslice = slice::from_raw_parts(key_ptr,key_sz);
-
-    ctx_ref.key[0]= loadu(keyslice.as_ptr());
-
-    if key_sz==16 {
-        // AES-128 key expansion
-        ctx_ref.key[5] = KEY_EXP_128(&mut ctx_ref.key,0,0x01);
-        ctx_ref.key[6] = KEY_EXP_128(&mut ctx_ref.key,5,0x02);
-        ctx_ref.key[7] = KEY_EXP_128(&mut ctx_ref.key,6,0x04);
-        ctx_ref.key[8] = KEY_EXP_128(&mut ctx_ref.key,7,0x08);
-        ctx_ref.key[9] = KEY_EXP_128(&mut ctx_ref.key,8,0x10);
-        ctx_ref.key[10] = KEY_EXP_128(&mut ctx_ref.key,9,0x20);
-        ctx_ref.key[11] = KEY_EXP_128(&mut ctx_ref.key,10,0x40);
-        ctx_ref.key[12] = KEY_EXP_128(&mut ctx_ref.key,11,0x80);
-        ctx_ref.key[13] = KEY_EXP_128(&mut ctx_ref.key,12,0x1b);
-        ctx_ref.key[14] = KEY_EXP_128(&mut ctx_ref.key,13,0x36);
-    } else {
-        // AES-256
-        ctx_ref.key[1] = loadu(keyslice.as_ptr().add(16));
-        ctx_ref.key[2] = KEY_EXP_256_1(&mut ctx_ref.key,0,0x01);
-        ctx_ref.key[3] = KEY_EXP_256_2(&mut ctx_ref.key,1);
-        ctx_ref.key[4] = KEY_EXP_256_1(&mut ctx_ref.key,2,0x02);
-        ctx_ref.key[5] = KEY_EXP_256_2(&mut ctx_ref.key,3);
-        ctx_ref.key[6] = KEY_EXP_256_1(&mut ctx_ref.key,4,0x04);
-        ctx_ref.key[7] = KEY_EXP_256_2(&mut ctx_ref.key,5);
-        ctx_ref.key[8] = KEY_EXP_256_1(&mut ctx_ref.key,6,0x08);
-        ctx_ref.key[9] = KEY_EXP_256_2(&mut ctx_ref.key,7);
-        ctx_ref.key[10] = KEY_EXP_256_1(&mut ctx_ref.key,8,0x10);
-        ctx_ref.key[11] = KEY_EXP_256_2(&mut ctx_ref.key,9);
-        ctx_ref.key[12] = KEY_EXP_256_1(&mut ctx_ref.key,10,0x20);
-        ctx_ref.key[13] = KEY_EXP_256_2(&mut ctx_ref.key,11);
-        ctx_ref.key[14] = KEY_EXP_256_1(&mut ctx_ref.key,12,0x40);
-    }
-
-    aes_gcmsiv_status_t::AES_GCMSIV_SUCCESS as i32
-}
-
-#[target_feature(enable = "aes")]
-unsafe fn aes_encrypt(ctx: &aes_x86_64, mut block: __m128i) -> __m128i {
-    block = XOR(block, ctx.key[0]);
-
+#[target_feature(enable="aes")]
+unsafe fn aes_encrypt(ctx:&AesX86_64, mut block:__m128i)->__m128i {
+    block = xor(block, ctx.key[0]);
     match ctx.key_sz {
         16 => {
-            // AES-128 = 10 rounds total
+            // AES-128
             block = _mm_aesenc_si128(block, ctx.key[5]);
             block = _mm_aesenc_si128(block, ctx.key[6]);
             block = _mm_aesenc_si128(block, ctx.key[7]);
@@ -1156,7 +1153,7 @@ unsafe fn aes_encrypt(ctx: &aes_x86_64, mut block: __m128i) -> __m128i {
             block = _mm_aesenclast_si128(block, ctx.key[14]);
         }
         32 => {
-            // AES-256 = 14 rounds total
+            // AES-256
             block = _mm_aesenc_si128(block, ctx.key[1]);
             block = _mm_aesenc_si128(block, ctx.key[2]);
             block = _mm_aesenc_si128(block, ctx.key[3]);
@@ -1168,31 +1165,13 @@ unsafe fn aes_encrypt(ctx: &aes_x86_64, mut block: __m128i) -> __m128i {
         }
         _=>{}
     }
-
     block
 }
 
-#[no_mangle]
-#[target_feature(enable = "aes")]
-unsafe extern "C" fn aes_x86_64_ecb_encrypt(ctx: *const aes_x86_64,
-                                            input: *const u8,
-                                            output: *mut u8) -> i32 {
-    if ctx.is_null() || input.is_null() || output.is_null() {
-        return aes_gcmsiv_status_t::AES_GCMSIV_INVALID_PARAMETERS as i32;
-    }
+#[target_feature(enable="aes")]
+unsafe fn aes_encrypt_x4(ctx:&AesX86_64, counter:&[__m128i;4], stream:&mut [__m128i;4]) {
+    for i in 0..4 { stream[i]=xor(counter[i],ctx.key[0]); }
 
-    let block = loadu(input);
-    let c = aes_encrypt(&*ctx, block);
-    storeu(output,c);
-    aes_gcmsiv_status_t::AES_GCMSIV_SUCCESS as i32
-}
-
-#[inline]
-#[target_feature(enable = "aes")]
-unsafe fn aes_encrypt_x4(ctx: &aes_x86_64, counter: &[__m128i;4], stream: &mut [__m128i;4]) {
-    for i in 0..4 {
-        stream[i]=XOR(counter[i],ctx.key[0]);
-    }
     if ctx.key_sz==32 {
         for r in 1..5 {
             for j in 0..4 {
@@ -1210,11 +1189,10 @@ unsafe fn aes_encrypt_x4(ctx: &aes_x86_64, counter: &[__m128i;4], stream: &mut [
     }
 }
 
-#[inline]
-#[target_feature(enable = "aes")]
-unsafe fn aes_encrypt_x2(ctx:&aes_x86_64, plain:&[__m128i;2], cipher:&mut[__m128i;2]) {
+#[target_feature(enable="aes")]
+unsafe fn aes_encrypt_x2(ctx:&AesX86_64, plain:&[__m128i;2], cipher:&mut[__m128i;2]) {
     for i in 0..2 {
-        cipher[i]=XOR(plain[i],ctx.key[0]);
+        cipher[i]=xor(plain[i],ctx.key[0]);
     }
     if ctx.key_sz==32 {
         for r in 1..5 {
@@ -1233,11 +1211,10 @@ unsafe fn aes_encrypt_x2(ctx:&aes_x86_64, plain:&[__m128i;2], cipher:&mut[__m128
     }
 }
 
-#[inline]
-#[target_feature(enable = "aes")]
-unsafe fn aes_encrypt_x3(ctx:&aes_x86_64, plain:&[__m128i;3], cipher:&mut[__m128i;3]) {
+#[target_feature(enable="aes")]
+unsafe fn aes_encrypt_x3(ctx:&AesX86_64, plain:&[__m128i;3], cipher:&mut[__m128i;3]) {
     for i in 0..3 {
-        cipher[i]=XOR(plain[i],ctx.key[0]);
+        cipher[i]=xor(plain[i],ctx.key[0]);
     }
     if ctx.key_sz==32 {
         for r in 1..5 {
@@ -1256,123 +1233,105 @@ unsafe fn aes_encrypt_x3(ctx:&aes_x86_64, plain:&[__m128i;3], cipher:&mut[__m128
     }
 }
 
-
-#[no_mangle]
-#[target_feature(enable = "aes")]
-unsafe extern "C" fn aes_x86_64_ctr(ctx: *const aes_x86_64,
-                                    nonce: *const u8,
-                                    input: *const u8,
-                                    input_sz: usize,
-                                    output: *mut u8) -> i32 {
-    if ctx.is_null() || ((input.is_null()||output.is_null()) && input_sz!=0) {
-        return aes_gcmsiv_status_t::AES_GCMSIV_INVALID_PARAMETERS as i32;
+#[target_feature(enable="aes")]
+unsafe fn aes_ctr(ctx:&AesX86_64, nonce:&[u8;16], input:&[u8], output:&mut[u8]) -> Result<()> {
+    if output.len()<input.len() {
+        return Err(AesGcmSivError::InvalidParameters);
     }
 
-    let ctx_ref = &*ctx;
     let one = _mm_set_epi32(0,0,0,1);
-    let mut counter = [ _mm_setzero_si128();4];
-    counter[0]=loadu(nonce);
+    let mut counter=[_mm_setzero_si128();4];
+    counter[0]=loadu(nonce.as_ptr());
     counter[1]=_mm_add_epi32(counter[0],one);
     counter[2]=_mm_add_epi32(counter[1],one);
     counter[3]=_mm_add_epi32(counter[2],one);
 
-    let mut inptr = input;
-    let mut outptr = output;
-    let mut remain = input_sz;
+    let mut remain=input.len();
+    let mut inptr=input.as_ptr();
+    let mut outptr=output.as_mut_ptr();
 
-    while remain >= 4*AES_BLOCK_SIZE {
-        let mut stream = [_mm_setzero_si128();4];
-        aes_encrypt_x4(ctx_ref,&counter,&mut stream);
+    while remain>=4*AES_BLOCK_SIZE {
+        let mut stream=[_mm_setzero_si128();4];
+        aes_encrypt_x4(ctx,&counter,&mut stream);
 
-        counter[0] = _mm_add_epi32(counter[3], one);
-        counter[1] = _mm_add_epi32(counter[0], one);
-        counter[2] = _mm_add_epi32(counter[1], one);
-        counter[3] = _mm_add_epi32(counter[2], one);
+        counter[0]=_mm_add_epi32(counter[3],one);
+        counter[1]=_mm_add_epi32(counter[0],one);
+        counter[2]=_mm_add_epi32(counter[1],one);
+        counter[3]=_mm_add_epi32(counter[2],one);
 
-        let inblk0 = loadu(inptr);
-        let inblk1 = loadu(inptr.add(16));
-        let inblk2 = loadu(inptr.add(32));
-        let inblk3 = loadu(inptr.add(48));
+        let inblk0=loadu(inptr);
+        let inblk1=loadu(inptr.add(16));
+        let inblk2=loadu(inptr.add(32));
+        let inblk3=loadu(inptr.add(48));
 
-        let c0=XOR(inblk0,stream[0]);
-        let c1=XOR(inblk1,stream[1]);
-        let c2=XOR(inblk2,stream[2]);
-        let c3=XOR(inblk3,stream[3]);
+        let c0=xor(inblk0,stream[0]);
+        let c1=xor(inblk1,stream[1]);
+        let c2=xor(inblk2,stream[2]);
+        let c3=xor(inblk3,stream[3]);
 
-        storeu(outptr, c0);
-        storeu(outptr.add(16), c1);
-        storeu(outptr.add(32), c2);
-        storeu(outptr.add(48), c3);
+        storeu(outptr,c0);
+        storeu(outptr.add(16),c1);
+        storeu(outptr.add(32),c2);
+        storeu(outptr.add(48),c3);
 
-        inptr = inptr.add(64);
-        outptr = outptr.add(64);
-        remain -=64;
+        inptr=inptr.add(64);
+        outptr=outptr.add(64);
+        remain-=64;
     }
 
-    // Handle remainder fully:
-    if remain > 0 {
+    if remain>0 {
+        let blocks=remain/16;
+        let leftover=remain%16;
         let mut tmp=[0u8;16];
-        let blocks = remain / AES_BLOCK_SIZE;
-        let leftover = remain % AES_BLOCK_SIZE;
 
         match blocks {
-            0 => {
-                // No full block, just a partial block
-                let mut single=[XOR(counter[0], ctx_ref.key[0])];
-                if ctx_ref.key_sz==32 {
-                    for r in 1..5 {
-                        single[0]=_mm_aesenc_si128(single[0], ctx_ref.key[r]);
-                    }
+            0=>{
+                // single partial block
+                let mut single=[xor(counter[0],ctx.key[0])];
+                if ctx.key_sz==32 {
+                    for r in 1..5 { single[0]=_mm_aesenc_si128(single[0], ctx.key[r]); }
                 }
                 for r in 5..14 {
-                    single[0]=_mm_aesenc_si128(single[0], ctx_ref.key[r]);
+                    single[0]=_mm_aesenc_si128(single[0], ctx.key[r]);
                 }
-                single[0]=_mm_aesenclast_si128(single[0], ctx_ref.key[14]);
+                single[0]=_mm_aesenclast_si128(single[0], ctx.key[14]);
 
-                ptr::copy_nonoverlapping(inptr, tmp.as_mut_ptr(), leftover);
-                for i in leftover..16 {
-                    tmp[i]=0;
-                }
+                ptr::copy_nonoverlapping(inptr,tmp.as_mut_ptr(), leftover);
+                for i in leftover..16 { tmp[i]=0; }
                 let inblk=loadu(tmp.as_ptr());
-                let outblk=XOR(inblk,single[0]);
+                let outblk=xor(inblk,single[0]);
                 storeu(tmp.as_mut_ptr(),outblk);
                 ptr::copy_nonoverlapping(tmp.as_ptr(), outptr, leftover);
             }
-            1 => {
-                // 1 full block and maybe partial remainder
+            1=>{
                 let plains=[counter[0], counter[1]];
                 let mut ciphers=[_mm_setzero_si128();2];
-                aes_encrypt_x2(ctx_ref,&plains,&mut ciphers);
+                aes_encrypt_x2(ctx,&plains,&mut ciphers);
 
-                // First full block
                 let inblk0=loadu(inptr);
-                let c0=XOR(inblk0,ciphers[0]);
+                let c0=xor(inblk0,ciphers[0]);
                 storeu(outptr,c0);
                 inptr=inptr.add(16);
                 outptr=outptr.add(16);
 
                 if leftover>0 {
                     ptr::copy_nonoverlapping(inptr,tmp.as_mut_ptr(), leftover);
-                    for i in leftover..16 {
-                        tmp[i]=0;
-                    }
+                    for i in leftover..16 { tmp[i]=0; }
                     let inblk=loadu(tmp.as_ptr());
-                    let outblk=XOR(inblk,ciphers[1]);
+                    let outblk=xor(inblk,ciphers[1]);
                     storeu(tmp.as_mut_ptr(),outblk);
                     ptr::copy_nonoverlapping(tmp.as_ptr(), outptr, leftover);
                 }
             }
-            2 => {
-                // 2 full blocks and maybe partial remainder
-                let plains=[counter[0], counter[1], counter[2]];
+            2=>{
+                let plains=[counter[0],counter[1],counter[2]];
                 let mut ciphers=[_mm_setzero_si128();3];
-                aes_encrypt_x3(ctx_ref,&plains,&mut ciphers);
+                aes_encrypt_x3(ctx,&plains,&mut ciphers);
 
                 let inblk0=loadu(inptr);
                 let inblk1=loadu(inptr.add(16));
-
-                let c0=XOR(inblk0,ciphers[0]);
-                let c1=XOR(inblk1,ciphers[1]);
+                let c0=xor(inblk0,ciphers[0]);
+                let c1=xor(inblk1,ciphers[1]);
                 storeu(outptr,c0);
                 storeu(outptr.add(16),c1);
 
@@ -1380,29 +1339,24 @@ unsafe extern "C" fn aes_x86_64_ctr(ctx: *const aes_x86_64,
                 outptr=outptr.add(32);
 
                 if leftover>0 {
-                    ptr::copy_nonoverlapping(inptr,tmp.as_mut_ptr(), leftover);
-                    for i in leftover..16 {
-                        tmp[i]=0;
-                    }
+                    ptr::copy_nonoverlapping(inptr,tmp.as_mut_ptr(),leftover);
+                    for i in leftover..16 { tmp[i]=0; }
                     let inblk=loadu(tmp.as_ptr());
-                    let outblk=XOR(inblk,ciphers[2]);
-                    storeu(tmp.as_mut_ptr(),outblk);
-                    ptr::copy_nonoverlapping(tmp.as_ptr(), outptr, leftover);
+                    let outblk=xor(inblk,ciphers[2]);
+                    storeu(tmp.as_mut_ptr(), outblk);
+                    ptr::copy_nonoverlapping(tmp.as_ptr(), outptr,leftover);
                 }
             }
-            3 => {
-                // 3 full blocks and maybe partial remainder = actually 4 blocks needed for x4
+            3=>{
                 let mut stream=[_mm_setzero_si128();4];
-                aes_encrypt_x4(ctx_ref,&counter,&mut stream);
-
+                aes_encrypt_x4(ctx,&counter,&mut stream);
                 let inblk0=loadu(inptr);
                 let inblk1=loadu(inptr.add(16));
                 let inblk2=loadu(inptr.add(32));
 
-                let c0=XOR(inblk0,stream[0]);
-                let c1=XOR(inblk1,stream[1]);
-                let c2=XOR(inblk2,stream[2]);
-
+                let c0=xor(inblk0,stream[0]);
+                let c1=xor(inblk1,stream[1]);
+                let c2=xor(inblk2,stream[2]);
                 storeu(outptr,c0);
                 storeu(outptr.add(16),c1);
                 storeu(outptr.add(32),c2);
@@ -1412,12 +1366,10 @@ unsafe extern "C" fn aes_x86_64_ctr(ctx: *const aes_x86_64,
 
                 if leftover>0 {
                     ptr::copy_nonoverlapping(inptr,tmp.as_mut_ptr(), leftover);
-                    for i in leftover..16 {
-                        tmp[i]=0;
-                    }
+                    for i in leftover..16 { tmp[i]=0; }
                     let inblk=loadu(tmp.as_ptr());
-                    let outblk=XOR(inblk,stream[3]);
-                    storeu(tmp.as_mut_ptr(),outblk);
+                    let outblk=xor(inblk,stream[3]);
+                    storeu(tmp.as_mut_ptr(), outblk);
                     ptr::copy_nonoverlapping(tmp.as_ptr(), outptr, leftover);
                 }
             }
@@ -1425,61 +1377,106 @@ unsafe extern "C" fn aes_x86_64_ctr(ctx: *const aes_x86_64,
         }
     }
 
-    aes_gcmsiv_status_t::AES_GCMSIV_SUCCESS as i32
+    Ok(())
 }
 
-// POLYVAL x86_64 optimization
-
 #[repr(C)]
-struct polyval_x86_64 {
+pub struct PolyvalX86_64 {
     s: __m128i,
     h_table: [__m128i;8],
 }
 
+impl PolyvalX86_64 {
+    pub fn new(key:&[u8;16]) -> Result<Self> {
+        unsafe {
+            let mut ctx=mem::MaybeUninit::<PolyvalX86_64>::uninit();
+            ptr::write_bytes(ctx.as_mut_ptr(),0,1);
+            let mut ctx=ctx.assume_init();
+            ctx.s=_mm_setzero_si128();
+            ctx.h_table[0]=loadu(key.as_ptr());
+            for i in 1..8 {
+                ctx.h_table[i]=dot(ctx.h_table[0],ctx.h_table[i-1]);
+            }
+            Ok(ctx)
+        }
+    }
+
+    pub fn update(&mut self, data:&[u8]) {
+        unsafe {
+            self.s = polyval_x86_64_process_tables(&self.h_table, self.s, data.as_ptr(), data.len());
+        }
+    }
+
+    pub fn finish(self, nonce:&[u8]) -> Result<[u8;16]> {
+        if nonce.len()>16 {
+            return Err(AesGcmSivError::InvalidNonceSize);
+        }
+        let mut tmp=[0u8;16];
+        tmp[..nonce.len()].copy_from_slice(nonce);
+        unsafe {
+            let n=loadu(tmp.as_ptr());
+            let out=xor(n,self.s);
+            let mut tag=[0u8;16];
+            storeu(tag.as_mut_ptr(),out);
+            Ok(tag)
+        }
+    }
+}
+
+impl Drop for PolyvalX86_64 {
+    fn drop(&mut self) {
+        unsafe {
+            zeroize(self as *mut _ as *mut u8, mem::size_of::<PolyvalX86_64>());
+        }
+    }
+}
+
+// Polyval logic
 #[inline]
-unsafe fn CLMUL(a: __m128i, b: __m128i, c: i32) -> __m128i {
-    _mm_clmulepi64_si128(a, b, c)
+unsafe fn clmul(a:__m128i, b:__m128i, c:i32)->__m128i {
+    _mm_clmulepi64_si128(a,b,c)
 }
 
 #[inline]
-unsafe fn SWAP(a: __m128i) -> __m128i {
+unsafe fn swap(a:__m128i)->__m128i {
     _mm_shuffle_epi32(a,0x4e)
 }
 
 #[inline]
-unsafe fn mult(a: __m128i, b: __m128i, c0: &mut __m128i, c1:&mut __m128i, c2:&mut __m128i) {
-    *c0 = CLMUL(a,b,0x00);
-    *c2 = CLMUL(a,b,0x11);
-    *c1 = XOR(CLMUL(a,b,0x01), CLMUL(a,b,0x10));
+unsafe fn mult(a:__m128i,b:__m128i,c0:&mut __m128i,c1:&mut __m128i,c2:&mut __m128i) {
+    *c0=clmul(a,b,0x00);
+    *c2=clmul(a,b,0x11);
+    *c1 = xor(clmul(a,b,0x01), clmul(a,b,0x10));
 }
 
 #[inline]
-unsafe fn add_mult(a: __m128i, b: __m128i, c0:&mut __m128i, c1:&mut __m128i, c2:&mut __m128i) {
-    *c0 = XOR(*c0, CLMUL(a,b,0x00));
-    *c2 = XOR(*c2, CLMUL(a,b,0x11));
-    *c1 = XOR(*c1, XOR(CLMUL(a,b,0x01), CLMUL(a,b,0x10)));
+unsafe fn add_mult(a:__m128i,b:__m128i,c0:&mut __m128i,c1:&mut __m128i,c2:&mut __m128i) {
+    *c0=xor(*c0, clmul(a,b,0x00));
+    *c2=xor(*c2, clmul(a,b,0x11));
+    *c1=xor(*c1, xor(clmul(a,b,0x01), clmul(a,b,0x10)));
 }
 
 #[inline]
-unsafe fn mult_inv_x64(p: __m128i) -> __m128i {
-    // Derived from original polynomial logic in the C code
-    const POLY: __m128i = __m128i::from_ne_bytes([0x00,0x00,0x00,0x00,0xc2,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00]);
-    let q = SWAP(p);
-    let r = CLMUL(p,POLY,0x00);
-    XOR(q,r)
+unsafe fn mult_inv_x64(p:__m128i)->__m128i {
+    // From original logic
+    let q=swap(p);
+    // poly from code:0xc2000000...
+    let poly=_mm_setr_epi32(0,0xc2000000u32 as i32,0x00000001u32 as i32,0);
+    let r=clmul(p,poly,0x00);
+    xor(q,r)
 }
 
 #[inline]
-unsafe fn mult_inv_x128(p0: __m128i, p1: __m128i, p2: __m128i) -> __m128i {
-    let q = XOR(p0, _mm_slli_si128(p1,8));
-    let r = XOR(p2,_mm_srli_si128(p1,8));
-    let s = mult_inv_x64(q);
-    let t = mult_inv_x64(s);
-    XOR(r,t)
+unsafe fn mult_inv_x128(p0:__m128i,p1:__m128i,p2:__m128i)->__m128i {
+    let q=xor(p0,_mm_slli_si128(p1,8));
+    let r=xor(p2,_mm_srli_si128(p1,8));
+    let s=mult_inv_x64(q);
+    let t=mult_inv_x64(s);
+    xor(r,t)
 }
 
 #[inline]
-unsafe fn dot(a: __m128i, b: __m128i) -> __m128i {
+unsafe fn dot(a:__m128i,b:__m128i)->__m128i {
     let mut c0=_mm_setzero_si128();
     let mut c1=_mm_setzero_si128();
     let mut c2=_mm_setzero_si128();
@@ -1488,182 +1485,128 @@ unsafe fn dot(a: __m128i, b: __m128i) -> __m128i {
 }
 
 #[inline]
-#[target_feature(enable = "pclmul")]
+#[target_feature(enable="pclmul")]
 unsafe fn polyval_x86_64_process_tables(h_table:&[__m128i;8],
-                                        mut s: __m128i,
-                                        mut data: *const u8,
-                                        mut data_sz: usize) -> __m128i {
+                                        mut s:__m128i,
+                                        mut data:*const u8,
+                                        mut data_sz:usize)->__m128i {
     let mut tmp=[0u8;16];
 
-    // Process 8-block chunks
-    while data_sz >= 8*POLYVAL_SIZE {
-        // load 8 blocks: D0..D7
-        // order: last loaded is D7, as per original code pattern
-        // It performs:
-        // d = D7
-        // mult(d,h_table[0])
-        // d = D6 add_mult ...
-        // ...
-        // finally add s
+    while data_sz>=8*16 {
+        let blocks=data as *const __m128i;
+        let D0=_mm_loadu_si128(blocks);
+        let D1=_mm_loadu_si128(blocks.add(1));
+        let D2=_mm_loadu_si128(blocks.add(2));
+        let D3=_mm_loadu_si128(blocks.add(3));
+        let D4=_mm_loadu_si128(blocks.add(4));
+        let D5=_mm_loadu_si128(blocks.add(5));
+        let D6=_mm_loadu_si128(blocks.add(6));
+        let D7=_mm_loadu_si128(blocks.add(7));
 
-        let blocks = data as *const __m128i;
-        let D0 = _mm_loadu_si128(blocks);
-        let D1 = _mm_loadu_si128(blocks.add(1));
-        let D2 = _mm_loadu_si128(blocks.add(2));
-        let D3 = _mm_loadu_si128(blocks.add(3));
-        let D4 = _mm_loadu_si128(blocks.add(4));
-        let D5 = _mm_loadu_si128(blocks.add(5));
-        let D6 = _mm_loadu_si128(blocks.add(6));
-        let D7 = _mm_loadu_si128(blocks.add(7));
+        let mut s0;let mut s1;let mut s2;
+        mult(D7,h_table[0],&mut s0,&mut s1,&mut s2);
+        add_mult(D6,h_table[1],&mut s0,&mut s1,&mut s2);
+        add_mult(D5,h_table[2],&mut s0,&mut s1,&mut s2);
+        add_mult(D4,h_table[3],&mut s0,&mut s1,&mut s2);
+        add_mult(D3,h_table[4],&mut s0,&mut s1,&mut s2);
+        add_mult(D2,h_table[5],&mut s0,&mut s1,&mut s2);
+        add_mult(D1,h_table[6],&mut s0,&mut s1,&mut s2);
+        let D0_s=xor(s,D0);
+        add_mult(D0_s,h_table[7],&mut s0,&mut s1,&mut s2);
 
-        let mut s0; let mut s1; let mut s2;
-
-        // d0 = D7 * H0
-        mult(D7,h_table[0], &mut s0,&mut s1,&mut s2);
-        // d1 = d0 + D6 * H1
-        add_mult(D6,h_table[1], &mut s0,&mut s1,&mut s2);
-        // d2 = d1 + D5 * H2
-        add_mult(D5,h_table[2], &mut s0,&mut s1,&mut s2);
-        // d3 = d2 + D4 * H3
-        add_mult(D4,h_table[3], &mut s0,&mut s1,&mut s2);
-        // d4 = d3 + D3 * H4
-        add_mult(D3,h_table[4], &mut s0,&mut s1,&mut s2);
-        // d5 = d4 + D2 * H5
-        add_mult(D2,h_table[5], &mut s0,&mut s1,&mut s2);
-        // d6 = d5 + D1 * H6
-        add_mult(D1,h_table[6], &mut s0,&mut s1,&mut s2);
-
-        // d7 = d6 + (D0 + s) * H7
-        let D0_s=XOR(s,D0);
-        add_mult(D0_s,h_table[7], &mut s0,&mut s1,&mut s2);
-
-        // s = d7 * X^-128
         s=mult_inv_x128(s0,s1,s2);
 
-        data = data.add(8*POLYVAL_SIZE);
-        data_sz -= 8*POLYVAL_SIZE;
+        data=data.add(8*16);
+        data_sz-=8*16;
     }
 
-    // process full blocks <8
-    let blocks = data_sz / POLYVAL_SIZE;
+    let blocks=data_sz/16;
     if blocks>0 {
-        let bptr = data as *const __m128i;
-        // Similar logic as above but for fewer blocks:
-        // For n blocks:
-        // d start from last block * H0
-        // then add_mult with previous block * H1, ...
-        // finally add_mult with (s + first_block)*H(n-1)
-
-        // Example if blocks=1:
-        // d = (s+ D0)*H0
-        // s = d * X^-128
-
-        if blocks ==1 {
-            let D0 = _mm_loadu_si128(bptr);
-            let D0_s = XOR(s,D0);
-            let mut s0; let mut s1; let mut s2;
-            mult(D0_s,h_table[0], &mut s0,&mut s1,&mut s2);
-            s=mult_inv_x128(s0,s1,s2);
-        } else {
-            // blocks >1:
-            // general form:
-            // d0 = lastblock * H0
-            // d1 = d0 + second_last_block * H1
-            // ...
-            // dn = d(n-1) + (s+first_block)*H(n-1)
-            // s = dn * X^-128
-            let last_block = _mm_loadu_si128(bptr.add(blocks-1));
-            let mut s0; let mut s1; let mut s2;
-            mult(last_block,h_table[0], &mut s0,&mut s1,&mut s2);
+        let bptr=data as *const __m128i;
+        if blocks>1 {
+            let last=_mm_loadu_si128(bptr.add(blocks-1));
+            let mut s0;let mut s1;let mut s2;
+            mult(last,h_table[0],&mut s0,&mut s1,&mut s2);
 
             for i in 1..(blocks-1) {
-                let blk = _mm_loadu_si128(bptr.add(blocks-1-i));
-                add_mult(blk,h_table[i], &mut s0,&mut s1,&mut s2);
+                let blk=_mm_loadu_si128(bptr.add(blocks-1-i));
+                add_mult(blk,h_table[i],&mut s0,&mut s1,&mut s2);
             }
-            let first_blk = _mm_loadu_si128(bptr);
-            let first_s=XOR(s,first_blk);
-            add_mult(first_s,h_table[blocks-1], &mut s0,&mut s1,&mut s2);
+
+            let first_s=xor(s,_mm_loadu_si128(bptr));
+            add_mult(first_s,h_table[blocks-1],&mut s0,&mut s1,&mut s2);
+            s=mult_inv_x128(s0,s1,s2);
+        } else {
+            let D0_s=xor(s,_mm_loadu_si128(bptr));
+            let mut s0;let mut s1;let mut s2;
+            mult(D0_s,h_table[0],&mut s0,&mut s1,&mut s2);
             s=mult_inv_x128(s0,s1,s2);
         }
-
-        data = data.add(blocks*POLYVAL_SIZE);
-        data_sz -= blocks*POLYVAL_SIZE;
+        data=data.add(blocks*16);
+        data_sz-=blocks*16;
     }
 
-    // partial leftover
-    if data_sz >0 {
-        ptr::copy_nonoverlapping(data, tmp.as_mut_ptr(), data_sz);
+    if data_sz>0 {
+        ptr::copy_nonoverlapping(data,tmp.as_mut_ptr(), data_sz);
         for i in data_sz..16 {
             tmp[i]=0;
         }
-        let d=XOR(s, loadu(tmp.as_ptr()));
+        let d=xor(s,_mm_loadu_si128(tmp.as_ptr() as *const __m128i));
         s=dot(d,h_table[0]);
     }
 
     s
 }
 
-#[no_mangle]
-#[target_feature(enable = "pclmul")]
-unsafe extern "C" fn polyval_x86_64_start(ctx: *mut polyval_x86_64, key:*const u8, key_sz: usize) -> i32 {
-    if ctx.is_null() || (key.is_null() && key_sz!=0) {
-        return aes_gcmsiv_status_t::AES_GCMSIV_INVALID_PARAMETERS as i32;
-    }
-    if key_sz!=16 {
-        return aes_gcmsiv_status_t::AES_GCMSIV_INVALID_KEY_SIZE as i32;
-    }
-
-    let ctx_ref = &mut *ctx;
-    ctx_ref.s = _mm_setzero_si128();
-
-    let h = loadu(key);
-    ctx_ref.h_table[0]=h;
-    for i in 1..8 {
-        ctx_ref.h_table[i]= dot(ctx_ref.h_table[0],ctx_ref.h_table[i-1]);
-    }
-
-    aes_gcmsiv_status_t::AES_GCMSIV_SUCCESS as i32
+pub struct PolyvalX86_64 {
+    s: __m128i,
+    h_table: [__m128i;8],
 }
 
-#[no_mangle]
-#[target_feature(enable = "pclmul")]
-unsafe extern "C" fn polyval_x86_64_update(ctx: *mut polyval_x86_64, data:*const u8, data_sz:usize) -> i32 {
-    if ctx.is_null() || (data.is_null() && data_sz!=0) {
-        return aes_gcmsiv_status_t::AES_GCMSIV_INVALID_PARAMETERS as i32;
+impl PolyvalX86_64 {
+    pub fn new(key:&[u8;16]) -> Result<Self> {
+        unsafe {
+            let mut ctx=mem::MaybeUninit::<PolyvalX86_64>::uninit();
+            ptr::write_bytes(ctx.as_mut_ptr(),0,1);
+            let mut ctx=ctx.assume_init();
+            ctx.s=_mm_setzero_si128();
+            ctx.h_table[0]=loadu(key.as_ptr());
+            for i in 1..8 {
+                ctx.h_table[i]=dot(ctx.h_table[0],ctx.h_table[i-1]);
+            }
+            Ok(ctx)
+        }
     }
 
-    let ctx_ref = &mut *ctx;
-    ctx_ref.s = polyval_x86_64_process_tables(&ctx_ref.h_table,ctx_ref.s,data,data_sz);
-    aes_gcmsiv_status_t::AES_GCMSIV_SUCCESS as i32
+    pub fn update(&mut self, data:&[u8]) {
+        unsafe {
+            self.s=polyval_x86_64_process_tables(&self.h_table,self.s,data.as_ptr(),data.len());
+        }
+    }
+
+    pub fn finish(self, nonce:&[u8]) -> Result<[u8;16]> {
+        if nonce.len()>16 {
+            return Err(AesGcmSivError::InvalidNonceSize);
+        }
+        let mut tmp=[0u8;16];
+        tmp[..nonce.len()].copy_from_slice(nonce);
+        unsafe {
+            let n=loadu(tmp.as_ptr());
+            let out=xor(n,self.s);
+            let mut tag=[0u8;16];
+            storeu(tag.as_mut_ptr(), out);
+            Ok(tag)
+        }
+    }
 }
 
-#[no_mangle]
-#[target_feature(enable = "pclmul")]
-unsafe extern "C" fn polyval_x86_64_finish(ctx:*mut polyval_x86_64,
-                                           nonce:*const u8,
-                                           nonce_sz:usize,
-                                           tag:*mut u8) -> i32 {
-    if ctx.is_null() || (nonce.is_null() && nonce_sz!=0) || tag.is_null() {
-        return aes_gcmsiv_status_t::AES_GCMSIV_INVALID_PARAMETERS as i32;
+impl Drop for PolyvalX86_64 {
+    fn drop(&mut self) {
+        unsafe {
+            zeroize(self as *mut _ as *mut u8, mem::size_of::<PolyvalX86_64>());
+        }
     }
-    if nonce_sz>16 {
-        return aes_gcmsiv_status_t::AES_GCMSIV_INVALID_NONCE_SIZE as i32;
-    }
-
-    let ctx_ref = &mut *ctx;
-    let mut tmp=[0u8;16];
-    ptr::copy_nonoverlapping(nonce, tmp.as_mut_ptr(), nonce_sz);
-    for i in nonce_sz..16 {
-        tmp[i]=0;
-    }
-
-    let n = loadu(tmp.as_ptr());
-    let out = XOR(n, ctx_ref.s);
-    storeu(tag, out);
-
-    aes_gcmsiv_status_t::AES_GCMSIV_SUCCESS as i32
 }
-
 
 // ARM64 OPTIMIZATION
 //
