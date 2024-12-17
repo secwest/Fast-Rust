@@ -5,10 +5,7 @@
 //
 // This Rust code provides a robust and optimized implementation of AES-GCM-SIV,
 // incorporating hardware acceleration where available and adhering to constant-time principles.
-// It prioritizes security, clarity, and efficiency.
 //
-// Disclaimer: While this code has been significantly improved, it's still recommended to use
-// well-vetted and audited cryptographic libraries for production systems.
 
 use std::mem;
 use std::ptr;
