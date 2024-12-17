@@ -17,7 +17,7 @@ Cargo.toml configuration:
 name = "aes-gcm-siv"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Dragos Ruiu <dr@secwest.net>"]
 description = "Optimized AES-GCM-SIV implementation with hardware acceleration"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/yourusername/aes-gcm-siv"
