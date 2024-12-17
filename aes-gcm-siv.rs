@@ -51,6 +51,23 @@ const KEY_AUTH_SIZE: usize = 16;
 /// Maximum size of the encryption key in bytes.
 const KEY_ENC_MAX_SIZE: usize = 32;
 
+
+// ====================== Feature Detection ======================
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn detect_x86_features() -> (bool, bool) {
+    let aes = is_x86_feature_detected!("aes");
+    let pclmul = is_x86_feature_detected!("pclmulqdq");
+    (aes, pclmul)
+}
+
+#[cfg(target_arch = "aarch64")]
+fn detect_arm64_features() -> (bool, bool) {
+    let aes = is_aarch64_feature_detected!("aes");
+    let pmull = is_aarch64_feature_detected!("pmull");
+    (aes, pmull)
+}
+
 /// ====================== Status and Error Handling ======================
 
 /// Enum representing various status codes for AES-GCM-SIV operations.
