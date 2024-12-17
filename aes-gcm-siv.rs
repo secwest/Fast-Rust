@@ -1665,4 +1665,542 @@ unsafe extern "C" fn polyval_x86_64_finish(ctx:*mut polyval_x86_64,
 }
 
 
+// ARM64 OPTIMIZATION
+//
+
+#![feature(stdsimd, target_feature_11)]
+use std::arch::aarch64::*;
+use std::mem;
+use std::ptr;
+use std::slice;
+
+const AES_BLOCK_SIZE: usize = 16;
+const POLYVAL_SIZE: usize = 16;
+const AES_BLOCK_SIZE_X4: usize = AES_BLOCK_SIZE * 4;
+
+#[derive(Debug)]
+enum AesGcmSivError {
+    InvalidParameters,
+    InvalidKeySize,
+    InvalidNonceSize,
+    // Add other errors as needed.
+}
+
+type Result<T> = std::result::Result<T, AesGcmSivError>;
+
+#[inline]
+unsafe fn zeroize(ptr: *mut u8, len: usize) {
+    for i in 0..len {
+        ptr::write_volatile(ptr.add(i), 0);
+    }
+}
+
+#[repr(C)]
+pub struct AesArm64 {
+    key: [uint8x16_t; 15],
+    key_size: usize,
+}
+
+#[repr(C)]
+pub struct PolyvalArm64 {
+    s: uint8x16_t,
+    h_table: [uint8x16_t; 8],
+}
+
+impl AesArm64 {
+    pub fn new() -> Self {
+        // Initialize everything to zero
+        unsafe {
+            let mut ctx = mem::MaybeUninit::<AesArm64>::uninit();
+            ptr::write_bytes(ctx.as_mut_ptr(), 0, 1);
+            ctx.assume_init()
+        }
+    }
+
+    pub fn set_key(&mut self, key: &[u8]) -> Result<()> {
+        if key.len() != 16 && key.len() != 32 {
+            return Err(AesGcmSivError::InvalidKeySize);
+        }
+
+        self.key_size = key.len();
+
+        unsafe {
+            match key.len() {
+                16 => {
+                    // AES-128 key expansion
+                    self.key[4] = vld1q_u8(key.as_ptr());
+                    self.key[5] = key_exp_128(&mut self.key, 4, 0x01);
+                    self.key[6] = key_exp_128(&mut self.key, 5, 0x02);
+                    self.key[7] = key_exp_128(&mut self.key, 6, 0x04);
+                    self.key[8] = key_exp_128(&mut self.key, 7, 0x08);
+                    self.key[9] = key_exp_128(&mut self.key, 8, 0x10);
+                    self.key[10] = key_exp_128(&mut self.key, 9, 0x20);
+                    self.key[11] = key_exp_128(&mut self.key, 10, 0x40);
+                    self.key[12] = key_exp_128(&mut self.key, 11, 0x80);
+                    self.key[13] = key_exp_128(&mut self.key, 12, 0x1b);
+                    self.key[14] = key_exp_128(&mut self.key, 13, 0x36);
+                }
+                32 => {
+                    // AES-256 key expansion
+                    self.key[0] = vld1q_u8(key.as_ptr());
+                    self.key[1] = vld1q_u8(key.as_ptr().add(16));
+                    self.key[2] = key_exp_256_1(&mut self.key, 0, 0x01);
+                    self.key[3] = key_exp_256_2(&mut self.key, 1);
+                    self.key[4] = key_exp_256_1(&mut self.key, 2, 0x02);
+                    self.key[5] = key_exp_256_2(&mut self.key, 3);
+                    self.key[6] = key_exp_256_1(&mut self.key, 4, 0x04);
+                    self.key[7] = key_exp_256_2(&mut self.key, 5);
+                    self.key[8] = key_exp_256_1(&mut self.key, 6, 0x08);
+                    self.key[9] = key_exp_256_2(&mut self.key, 7);
+                    self.key[10] = key_exp_256_1(&mut self.key, 8, 0x10);
+                    self.key[11] = key_exp_256_2(&mut self.key, 9);
+                    self.key[12] = key_exp_256_1(&mut self.key, 10, 0x20);
+                    self.key[13] = key_exp_256_2(&mut self.key, 11);
+                    self.key[14] = key_exp_256_1(&mut self.key, 12, 0x40);
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn ecb_encrypt(&self, plain: &[u8; AES_BLOCK_SIZE]) -> Result<[u8; AES_BLOCK_SIZE]> {
+        let mut block = unsafe { vld1q_u8(plain.as_ptr()) };
+        block = unsafe { aes_encrypt(self, block) };
+        let mut cipher = [0u8;16];
+        unsafe { vst1q_u8(cipher.as_mut_ptr(), block); }
+        Ok(cipher)
+    }
+
+    pub fn ctr(&self, nonce: &[u8;AES_BLOCK_SIZE], input:&[u8], output:&mut [u8]) -> Result<()> {
+        if output.len()<input.len() {
+            return Err(AesGcmSivError::InvalidParameters);
+        }
+
+        unsafe { aes_ctr(self, nonce, input, output) }
+    }
+}
+
+impl Drop for AesArm64 {
+    fn drop(&mut self) {
+        unsafe {
+            zeroize(self as *mut _ as *mut u8, mem::size_of::<AesArm64>());
+        }
+    }
+}
+
+impl PolyvalArm64 {
+    pub fn new(key:&[u8;16]) -> Result<Self> {
+        let mut ctx=unsafe{
+            let mut c=mem::MaybeUninit::<PolyvalArm64>::uninit();
+            ptr::write_bytes(c.as_mut_ptr(),0,1);
+            c.assume_init()
+        };
+
+        unsafe {
+            ctx.s=vdupq_n_u8(0);
+            ctx.h_table[0]=vld1q_u8(key.as_ptr());
+            for i in 1..8 {
+                ctx.h_table[i]=dot(ctx.h_table[0], ctx.h_table[i-1]);
+            }
+        }
+
+        Ok(ctx)
+    }
+
+    pub fn update(&mut self, data:&[u8]) {
+        unsafe {
+            self.s=polyval_arm64_process_tables(&self.h_table,self.s,data.as_ptr(), data.len());
+        }
+    }
+
+    pub fn finish(mut self, nonce:&[u8]) -> Result<[u8;16]> {
+        if nonce.len()>16 {
+            return Err(AesGcmSivError::InvalidNonceSize);
+        }
+
+        let mut tmp=[0u8;16];
+        tmp[..nonce.len()].copy_from_slice(nonce);
+
+        let n=unsafe{vld1q_u8(tmp.as_ptr())};
+        let out=unsafe{veorq_u8(n,self.s)};
+        let mut tag=[0u8;16];
+        unsafe { vst1q_u8(tag.as_mut_ptr(),out) };
+        Ok(tag)
+    }
+}
+
+impl Drop for PolyvalArm64 {
+    fn drop(&mut self) {
+        unsafe {
+            zeroize(self as *mut _ as *mut u8, mem::size_of::<PolyvalArm64>());
+        }
+    }
+}
+
+// ----- Internal unsafe functions for AES and Polyval -----
+
+// Key expansion helpers (same logic as original)
+#[inline]
+unsafe fn SHIFT_ADD(a:uint8x16_t)->uint8x16_t {
+    let tmp=vextq_u8(vdupq_n_u8(0),a,12);
+    veorq_u8(a,tmp)
+}
+
+#[inline]
+unsafe fn TSHIFT_ADD(a:uint8x16_t)->uint8x16_t {
+    SHIFT_ADD(SHIFT_ADD(SHIFT_ADD(a)))
+}
+#[inline]
+unsafe fn ROTWORD(a:uint8x16_t)->uint8x16_t {
+    vextq_u8(a,a,4)
+}
+#[inline]
+unsafe fn NOROTWORD(a:uint8x16_t)->uint8x16_t {
+    vextq_u8(a,vdupq_n_u8(0),12)
+}
+#[inline]
+unsafe fn SUBWORD(a:uint8x16_t)->uint8x16_t {
+    vaeseq_u8(a,vdupq_n_u8(0))
+}
+#[inline]
+unsafe fn RCON(a:u32)->uint8x16_t {
+    vreinterpretq_u8_u32(vdupq_n_u32(a))
+}
+#[inline]
+unsafe fn XOR(a:uint8x16_t,b:uint8x16_t)->uint8x16_t { veorq_u8(a,b) }
+#[inline]
+unsafe fn XOR3(a:uint8x16_t,b:uint8x16_t,c:uint8x16_t)->uint8x16_t {
+    veorq_u8(a, veorq_u8(b,c))
+}
+
+#[inline]
+unsafe fn key_exp_128(key:&mut [uint8x16_t], i:usize, r:u32)->uint8x16_t {
+    XOR3(TSHIFT_ADD(key[i]), SUBWORD(ROTWORD(key[i])), RCON(r))
+}
+
+#[inline]
+unsafe fn key_exp_256_1(key:&mut [uint8x16_t], i:usize, r:u32)->uint8x16_t {
+    XOR3(TSHIFT_ADD(key[i]), SUBWORD(ROTWORD(key[i+1])), RCON(r))
+}
+
+#[inline]
+unsafe fn key_exp_256_2(key:&mut [uint8x16_t], i:usize)->uint8x16_t {
+    XOR(TSHIFT_ADD(key[i]), SUBWORD(NOROTWORD(key[i+1])))
+}
+
+#[inline]
+unsafe fn AES_ROUND(block:&mut uint8x16_t, k:uint8x16_t) {
+    *block=vaeseq_u8(*block,k);
+    *block=vaesmcq_u8(*block);
+}
+
+#[inline]
+unsafe fn AES_LAST_ROUND(block:&mut uint8x16_t,k0:uint8x16_t,k1:uint8x16_t){
+    *block=vaeseq_u8(*block,k0);
+    *block=veorq_u8(*block,k1);
+}
+
+#[target_feature(enable="aes")]
+unsafe fn aes_encrypt(ctx:&AesArm64, mut block:uint8x16_t)->uint8x16_t {
+    if ctx.key_size==32 {
+        AES_ROUND(&mut block, ctx.key[0]);
+        AES_ROUND(&mut block, ctx.key[1]);
+        AES_ROUND(&mut block, ctx.key[2]);
+        AES_ROUND(&mut block, ctx.key[3]);
+    }
+
+    AES_ROUND(&mut block, ctx.key[4]);
+    AES_ROUND(&mut block, ctx.key[5]);
+    AES_ROUND(&mut block, ctx.key[6]);
+    AES_ROUND(&mut block, ctx.key[7]);
+    AES_ROUND(&mut block, ctx.key[8]);
+    AES_ROUND(&mut block, ctx.key[9]);
+    AES_ROUND(&mut block, ctx.key[10]);
+    AES_ROUND(&mut block, ctx.key[11]);
+    AES_ROUND(&mut block, ctx.key[12]);
+    AES_LAST_ROUND(&mut block, ctx.key[13], ctx.key[14]);
+    block
+}
+
+#[inline]
+unsafe fn add_u32x4(a:uint8x16_t,b:uint32x4_t)->uint8x16_t {
+    let x=vreinterpretq_u32_u8(a);
+    let y=b;
+    vreinterpretq_u8_u32(vaddq_u32(x,y))
+}
+
+#[inline]
+unsafe fn uint32x4_c(a:u32)->uint32x4_t {
+    vdupq_n_u32(a)
+}
+
+#[target_feature(enable="aes")]
+unsafe fn aes_encrypt_x4(ctx:&AesArm64, counter:&[uint8x16_t;4], out:&mut[uint8x16_t;4]) {
+    for i in 0..4 { out[i]=veorq_u8(counter[i],ctx.key[0]); }
+    if ctx.key_size==32 {
+        for r in 1..4 {
+            for i in 0..4 {
+                out[i]=vaeseq_u8(out[i], ctx.key[r]);
+                out[i]=vaesmcq_u8(out[i]);
+            }
+        }
+    }
+    for r in 4..13 {
+        for i in 0..4 {
+            out[i]=vaeseq_u8(out[i],ctx.key[r]);
+            out[i]=vaesmcq_u8(out[i]);
+        }
+    }
+    for i in 0..4 {
+        out[i]=vaeseq_u8(out[i], ctx.key[13]);
+        out[i]=veorq_u8(out[i], ctx.key[14]);
+    }
+}
+
+#[target_feature(enable="aes")]
+unsafe fn aes_ctr(ctx:&AesArm64, nonce:&[u8;16], input:&[u8], output:&mut[u8])->Result<()> {
+    if output.len()<input.len() {
+        return Err(AesGcmSivError::InvalidParameters);
+    }
+
+    let one=uint32x4_c(1);
+    let mut counter=[vdupq_n_u8(0);4];
+    counter[0]=vld1q_u8(nonce.as_ptr());
+    counter[1]=add_u32x4(counter[0],one);
+    counter[2]=add_u32x4(counter[1],one);
+    counter[3]=add_u32x4(counter[2],one);
+
+    let mut remain=input.len();
+    let mut inptr=input.as_ptr();
+    let mut outptr=output.as_mut_ptr();
+
+    let mut stream=[vdupq_n_u8(0);4];
+
+    while remain>=AES_BLOCK_SIZE_X4 {
+        aes_encrypt_x4(ctx,&counter,&mut stream);
+        counter[0]=add_u32x4(counter[0],uint32x4_c(4));
+        counter[1]=add_u32x4(counter[1],uint32x4_c(4));
+        counter[2]=add_u32x4(counter[2],uint32x4_c(4));
+        counter[3]=add_u32x4(counter[3],uint32x4_c(4));
+
+        let mut blocks_in=[vdupq_n_u8(0);4];
+        for i in 0..4 {
+            blocks_in[i]=vld1q_u8(inptr.add(i*16));
+        }
+
+        for i in 0..4 {
+            let c=veorq_u8(blocks_in[i],stream[i]);
+            vst1q_u8(outptr.add(i*16),c);
+        }
+
+        inptr=inptr.add(AES_BLOCK_SIZE_X4);
+        outptr=outptr.add(AES_BLOCK_SIZE_X4);
+        remain-=AES_BLOCK_SIZE_X4;
+    }
+
+    if remain>0 {
+        let num_blocks=remain/AES_BLOCK_SIZE;
+        let leftover=remain%AES_BLOCK_SIZE;
+        let mut stack_stream=[vdupq_n_u8(0);4];
+
+        match num_blocks {
+            0 => {
+                stack_stream[0]=aes_encrypt(ctx,counter[0]);
+            }
+            1=>{
+                let tempctr=[counter[0],counter[1],vdupq_n_u8(0),vdupq_n_u8(0)];
+                aes_encrypt_x4(ctx,&tempctr,&mut stack_stream);
+                let inblk=vld1q_u8(inptr);
+                let c=veorq_u8(inblk,stack_stream[0]);
+                vst1q_u8(outptr,c);
+            }
+            2=>{
+                let tempctr=[counter[0],counter[1],counter[2],vdupq_n_u8(0)];
+                aes_encrypt_x4(ctx,&tempctr,&mut stack_stream);
+                let b0=vld1q_u8(inptr);
+                let b1=vld1q_u8(inptr.add(16));
+                vst1q_u8(outptr,veorq_u8(b0,stack_stream[0]));
+                vst1q_u8(outptr.add(16),veorq_u8(b1,stack_stream[1]));
+            }
+            3=>{
+                aes_encrypt_x4(ctx,&counter,&mut stack_stream);
+                let b0=vld1q_u8(inptr);
+                let b1=vld1q_u8(inptr.add(16));
+                let b2=vld1q_u8(inptr.add(32));
+                vst1q_u8(outptr,veorq_u8(b0,stack_stream[0]));
+                vst1q_u8(outptr.add(16),veorq_u8(b1,stack_stream[1]));
+                vst1q_u8(outptr.add(32),veorq_u8(b2,stack_stream[2]));
+            }
+            _=>{}
+        }
+
+        inptr=inptr.add(num_blocks*AES_BLOCK_SIZE);
+        outptr=outptr.add(num_blocks*AES_BLOCK_SIZE);
+        remain-=num_blocks*AES_BLOCK_SIZE;
+
+        if leftover>0 {
+            let mut tmp=[0u8;16];
+            ptr::copy_nonoverlapping(inptr,tmp.as_mut_ptr(), leftover);
+            let inblk=vld1q_u8(tmp.as_ptr());
+            let outblk=veorq_u8(inblk,stack_stream[num_blocks]);
+            vst1q_u8(tmp.as_mut_ptr(),outblk);
+            ptr::copy_nonoverlapping(tmp.as_ptr(), outptr, leftover);
+        }
+    }
+
+    Ok(())
+}
+
+// Polyval logic (same as original code, just tidied up)
+#[inline]
+unsafe fn SWAP(a:uint8x16_t)->uint8x16_t {
+    vextq_u8(a,a,8)
+}
+
+#[inline]
+unsafe fn poly64_low(a:uint8x16_t)->poly64_t {
+    vget_lane_p64(vreinterpretq_p64_u8(a),0)
+}
+
+#[inline]
+unsafe fn poly64_high(a:uint8x16_t)->poly64_t {
+    vget_lane_p64(vreinterpretq_p64_u8(a),1)
+}
+
+#[inline]
+unsafe fn MULT_LOW(a:uint8x16_t,b:uint8x16_t)->uint8x16_t {
+    let a0=poly64_low(a);
+    let b0=poly64_low(b);
+    vreinterpretq_u8_p128(vmull_p64(a0,b0))
+}
+#[inline]
+unsafe fn MULT_HIGH(a:uint8x16_t,b:uint8x16_t)->uint8x16_t {
+    let a1=poly64_high(a);
+    let b1=poly64_high(b);
+    vreinterpretq_u8_p128(vmull_p64(a1,b1))
+}
+
+#[inline]
+unsafe fn mult(a:uint8x16_t,b:uint8x16_t,c0:&mut uint8x16_t,c1:&mut uint8x16_t,c2:&mut uint8x16_t) {
+    *c0=MULT_LOW(a,b);
+    *c2=MULT_HIGH(a,b);
+    let a0=poly64_low(a);
+    let b1=poly64_high(b);
+    let a1=poly64_high(a);
+    let b0=poly64_low(b);
+    let a0b1=vreinterpretq_u8_p128(vmull_p64(a0,b1));
+    let a1b0=vreinterpretq_u8_p128(vmull_p64(a1,b0));
+    *c1=veorq_u8(a0b1,a1b0);
+}
+
+#[inline]
+unsafe fn add_mult(a:uint8x16_t,b:uint8x16_t,c0:&mut uint8x16_t,c1:&mut uint8x16_t,c2:&mut uint8x16_t){
+    let mut aa0=vdupq_n_u8(0); let mut aa1=vdupq_n_u8(0);let mut aa2=vdupq_n_u8(0);
+    mult(a,b,&mut aa0,&mut aa1,&mut aa2);
+    *c0=veorq_u8(*c0,aa0);
+    *c2=veorq_u8(*c2,aa2);
+    *c1=veorq_u8(*c1,aa1);
+}
+
+#[inline]
+unsafe fn mult_inv_x64(p:uint8x16_t)->uint8x16_t {
+    let poly=0xc200000000000000u64;
+    let poly_p64=vcreate_p64(poly);
+    let q=SWAP(p);
+    let a0=poly64_low(p);
+    let r=vreinterpretq_u8_p128(vmull_p64(a0,vget_lane_p64(poly_p64,0)));
+    veorq_u8(q,r)
+}
+
+#[inline]
+unsafe fn mult_inv_x128(p0:uint8x16_t,p1:uint8x16_t,p2:uint8x16_t)->uint8x16_t {
+    let q=veorq_u8(p0,vextq_u8(vdupq_n_u8(0),p1,8));
+    let r=veorq_u8(p2,vextq_u8(p1,vdupq_n_u8(0),8));
+    let s=mult_inv_x64(q);
+    let t=mult_inv_x64(s);
+    veorq_u8(r,t)
+}
+
+#[inline]
+unsafe fn dot(a:uint8x16_t,b:uint8x16_t)->uint8x16_t {
+    let mut c0=vdupq_n_u8(0);
+    let mut c1=vdupq_n_u8(0);
+    let mut c2=vdupq_n_u8(0);
+    mult(a,b,&mut c0,&mut c1,&mut c2);
+    mult_inv_x128(c0,c1,c2)
+}
+
+#[inline]
+unsafe fn polyval_arm64_process_tables(h_table:&[uint8x16_t;8],
+                                       mut s:uint8x16_t,
+                                       mut data:*const u8,
+                                       mut data_sz:usize) -> uint8x16_t {
+    let mut tmp=[0u8;16];
+
+    let blocks_8=data_sz/(8*POLYVAL_SIZE);
+    for _ in 0..blocks_8 {
+        let D0=vld1q_u8(data);
+        let D1=vld1q_u8(data.add(16));
+        let D2=vld1q_u8(data.add(32));
+        let D3=vld1q_u8(data.add(48));
+        let D4=vld1q_u8(data.add(64));
+        let D5=vld1q_u8(data.add(80));
+        let D6=vld1q_u8(data.add(96));
+        let D7=vld1q_u8(data.add(112));
+
+        let mut s0=vdupq_n_u8(0); let mut s1=vdupq_n_u8(0); let mut s2=vdupq_n_u8(0);
+
+        mult(D7,h_table[0],&mut s0,&mut s1,&mut s2);
+        add_mult(D6,h_table[1],&mut s0,&mut s1,&mut s2);
+        add_mult(D5,h_table[2],&mut s0,&mut s1,&mut s2);
+        add_mult(D4,h_table[3],&mut s0,&mut s1,&mut s2);
+        add_mult(D3,h_table[4],&mut s0,&mut s1,&mut s2);
+        add_mult(D2,h_table[5],&mut s0,&mut s1,&mut s2);
+        add_mult(D1,h_table[6],&mut s0,&mut s1,&mut s2);
+        add_mult(veorq_u8(s,D0),h_table[7],&mut s0,&mut s1,&mut s2);
+
+        s=mult_inv_x128(s0,s1,s2);
+
+        data=data.add(8*16);
+        data_sz-=8*16;
+    }
+
+    let blocks=data_sz/16;
+    if blocks>0 {
+        if blocks>1 {
+            let last=vld1q_u8(data.add((blocks-1)*16));
+            let mut s0=vdupq_n_u8(0);let mut s1=vdupq_n_u8(0);let mut s2=vdupq_n_u8(0);
+            mult(last,h_table[0],&mut s0,&mut s1,&mut s2);
+            for i in 1..(blocks-1) {
+                let blk=vld1q_u8(data.add((blocks-1-i)*16));
+                add_mult(blk,h_table[i],&mut s0,&mut s1,&mut s2);
+            }
+            let first=veorq_u8(s,vld1q_u8(data));
+            add_mult(first,h_table[blocks-1],&mut s0,&mut s1,&mut s2);
+            s=mult_inv_x128(s0,s1,s2);
+        } else {
+            let first=veorq_u8(s,vld1q_u8(data));
+            let mut s0=vdupq_n_u8(0);let mut s1=vdupq_n_u8(0);let mut s2=vdupq_n_u8(0);
+            mult(first,h_table[0],&mut s0,&mut s1,&mut s2);
+            s=mult_inv_x128(s0,s1,s2);
+        }
+
+        data=data.add(blocks*16);
+        data_sz-=blocks*16;
+    }
+
+    if data_sz>0 {
+        ptr::copy_nonoverlapping(data,tmp.as_mut_ptr(), data_sz);
+        for i in data_sz..16 {
+            tmp[i]=0;
+        }
+        let d=veorq_u8(s,vld1q_u8(tmp.as_ptr()));
+        s=dot(d,h_table[0]);
+    }
+
+    s
+}
+
 // aes-gcm-siv.rs
