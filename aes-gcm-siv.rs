@@ -1,4 +1,23 @@
-// ====================== Complete Generic Implementation ======================
+// AES-GCM_SIV - December 16 2024
+// RFC: https://www.rfc-editor.org/rfc/rfc8452
+// 
+// This Rust code is a direct, functional translation of the canonical demonstration C code into Rust.
+// It attempts to preserve logic, structure, and naming as closely as possible, relying only on Rust's standard library.
+// All original logic, including AES key schedule, AES encryption, Polyval operations, and GCM-SIV related steps, are implemented.
+// No hardware acceleration or platform-specific code is complete yet. The hardware-specific code paths and macros are omitted,
+// leaving only the generic implementations. Minimal imports are used (only std for basic operations).
+//
+// Note: This code is large and complex, as it closely follows the original C implementation. Tables and constants are included inline.
+// Please note that the AES implementation here is a direct port and may not be optimized for production use.
+// It serves as a demonstration of functional equivalence and correctness.
+//
+// The original code depends on conditional compilation and multiple files. This Rust code places all logic in a single file for simplicity.
+// Runtime CPU feature detection and related code are stubbed out or simplified.
+// The code uses Box for dynamic memory allocation where the original code used malloc/free.
+// Memory zeroization is done using a volatile write loop. Constants and tables are directly copied from the original code.
+// For brevity, some inline comments are omitted, but the logic remains equivalent.
+//
+// DISCLAIMER: This code is for demonstration and has not been tested or audited.
 
 #![feature(stdsimd, target_feature_11)]
 
